@@ -194,6 +194,7 @@ tbody td{padding:13px 12px;vertical-align:middle}
   /* 기본 레이아웃 */
   .page{padding:10px}
   .stats{grid-template-columns:repeat(2,1fr)}
+  #extra-monthly-grid{grid-template-columns:repeat(6,1fr)!important}
   .form-grid,.form-grid.cols3{grid-template-columns:1fr}
 
   /* 네비게이션 */
@@ -386,6 +387,18 @@ tbody td{padding:13px 12px;vertical-align:middle}
       <div class="stat"><div class="stat-n" id="st-monthly">0</div><div class="stat-l">월 총 렌탈금</div></div>
       <div class="stat"><div class="stat-n" id="st-paid">0</div><div class="stat-l">최근 납부완료</div><div class="stat-sub" id="st-unpaid"></div></div>
       <div class="stat"><div class="stat-n" id="st-deposit">0</div><div class="stat-l">보증금 합계</div></div>
+    </div>
+    <!-- 추가사용료 월별 합계 -->
+    <div id="extra-monthly-wrap" style="background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;margin-bottom:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:600;color:var(--text)">📊 추가사용료 월별 합계</div>
+        <select id="extra-monthly-year" onchange="renderExtraMonthly()" style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;font-family:inherit"></select>
+      </div>
+      <div id="extra-monthly-grid" style="display:grid;grid-template-columns:repeat(12,1fr);gap:6px"></div>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;color:var(--text3)">연 누계</span>
+        <span id="extra-monthly-total" style="font-size:15px;font-weight:700;color:var(--blue-dark)">0원</span>
+      </div>
     </div>
   </div>
   <!-- 비관리자 잠금 안내 -->
@@ -1567,6 +1580,58 @@ function updateStats(){
   document.getElementById('st-unpaid').textContent=unpaid?`미납 ${unpaid}건`:'';
   const dep=active.reduce((s,c)=>s+(parseInt(c.deposit)||0),0);
   document.getElementById('st-deposit').textContent=dep.toLocaleString()+'원';
+  // 추가사용료 월별 합계 갱신
+  refreshExtraMonthlyYearOptions();
+  renderExtraMonthly();
+}
+
+// 연도 셀렉트 옵션 채우기
+function refreshExtraMonthlyYearOptions(){
+  const sel=document.getElementById('extra-monthly-year');
+  if(!sel) return;
+  const years=new Set();
+  EXTRA_PAYS.forEach(e=>{ if(e.date) years.add(e.date.substring(0,4)); });
+  const cy=String(new Date().getFullYear());
+  years.add(cy);
+  const sorted=Array.from(years).sort((a,b)=>b.localeCompare(a)); // 최신 연도가 위
+  const prev=sel.value;
+  sel.innerHTML=sorted.map(y=>`<option value="${y}">${y}년</option>`).join('');
+  // 기존 선택값 유지, 없으면 올해
+  if(prev && sorted.includes(prev)) sel.value=prev;
+  else sel.value=cy;
+}
+
+// 월별 그리드 렌더
+function renderExtraMonthly(){
+  const sel=document.getElementById('extra-monthly-year');
+  const grid=document.getElementById('extra-monthly-grid');
+  const totalEl=document.getElementById('extra-monthly-total');
+  if(!sel||!grid||!totalEl) return;
+  const year=sel.value || String(new Date().getFullYear());
+  // 1~12월 합계 계산
+  const sums=Array(12).fill(0);
+  EXTRA_PAYS.forEach(e=>{
+    if(!e.date||!e.date.startsWith(year)) return;
+    const m=parseInt(e.date.substring(5,7))-1;
+    if(m>=0&&m<12) sums[m]+=(parseInt(e.amount)||0);
+  });
+  const yearTotal=sums.reduce((a,b)=>a+b,0);
+  const curMonth=(new Date().getFullYear()===parseInt(year))?(new Date().getMonth()+1):13;
+  // 카드 렌더
+  grid.innerHTML=sums.map((v,i)=>{
+    const m=i+1;
+    const hasData=v>0;
+    const isFuture=m>curMonth;
+    const bg=hasData?'#E6F1FB':(isFuture?'#F8F9FA':'#F1EFE8');
+    const labelColor=hasData?'#185FA5':'#888780';
+    const valueColor=hasData?'#042C53':'#5F5E5A';
+    const display=hasData?v.toLocaleString():'-';
+    return `<div style="background:${bg};border-radius:6px;padding:8px 4px;text-align:center;min-width:0">
+      <div style="font-size:11px;color:${labelColor};font-weight:600">${m}월</div>
+      <div style="font-size:12px;color:${valueColor};font-weight:700;margin-top:3px;overflow:hidden;text-overflow:ellipsis">${display}</div>
+    </div>`;
+  }).join('');
+  totalEl.textContent=yearTotal.toLocaleString()+'원';
 }
 function applyFilters(){
   const q=document.getElementById('srch').value.toLowerCase();
@@ -2093,14 +2158,18 @@ function saveExtraPay(){
   }
   closeModal('extra-modal');
   if(document.getElementById('detail-modal').classList.contains('open')) renderDetailExtras(currentNo);
-  renderPayment(); autoSave(); alert('저장되었습니다.');
+  renderPayment(); 
+  if(typeof refreshExtraMonthlyYearOptions==='function'){ refreshExtraMonthlyYearOptions(); renderExtraMonthly(); }
+  autoSave(); alert('저장되었습니다.');
 }
 function confirmDeleteExtra(id){
   showConfirm('이 추가사용료를 삭제하시겠습니까?',()=>{
     EXTRA_PAYS=EXTRA_PAYS.filter(e=>e.id!==id);
     closeModal('confirm-modal');
     if(document.getElementById('detail-modal').classList.contains('open')) renderDetailExtras(currentNo);
-    renderPayment(); autoSave(); alert('삭제되었습니다.');
+    renderPayment();
+    if(typeof refreshExtraMonthlyYearOptions==='function'){ refreshExtraMonthlyYearOptions(); renderExtraMonthly(); }
+    autoSave(); alert('삭제되었습니다.');
   });
 }
 
@@ -2601,11 +2670,22 @@ function renderRentStats(){
   const totalQty=active.reduce((s,c)=>s+(c.qty||1),0);
   const totalRent=active.reduce((s,c)=>s+(c.rent||0),0);
   const devMap={};
-  active.forEach(c=>{const key=(c.etc||'기타').toUpperCase().trim()||'기타';if(!devMap[key])devMap[key]={qty:0,rent:0};devMap[key].qty+=(c.qty||1);devMap[key].rent+=(c.rent||0);});
+  active.forEach(c=>{
+    const key=(c.etc||'기타').toUpperCase().trim()||'기타';
+    if(!devMap[key])devMap[key]={qty:0,rent:0,colorCount:{}};
+    devMap[key].qty+=(c.qty||1);
+    devMap[key].rent+=(c.rent||0);
+    // 색상별 사용 횟수 누적 (같은 기기명에 여러 색상이 있을 경우 다수결)
+    const col=c.etc_color||'black';
+    devMap[key].colorCount[col]=(devMap[key].colorCount[col]||0)+(c.qty||1);
+  });
   const devList=Object.entries(devMap).sort((a,b)=>b[1].rent-a[1].rent);
   function devRow(k,v){
     const qPct=totalQty?Math.round(v.qty/totalQty*100):0;
-    return `<tr><td style="font-weight:600">${esc(k)}</td><td style="text-align:center">${v.qty}대</td><td style="text-align:center"><span class="badge b-teal">${qPct}%</span></td><td style="text-align:right;font-weight:600;color:var(--blue)">${v.rent.toLocaleString()}원</td></tr>`;
+    // 가장 많이 사용된 색상 선택
+    const topColor=Object.entries(v.colorCount).sort((a,b)=>b[1]-a[1])[0]?.[0]||'black';
+    const colorCode=ETC_COLOR_MAP[topColor]||topColor;
+    return `<tr><td style="font-weight:600;color:${colorCode}">${esc(k)}</td><td style="text-align:center">${v.qty}대</td><td style="text-align:center"><span class="badge b-teal">${qPct}%</span></td><td style="text-align:right;font-weight:600;color:var(--blue)">${v.rent.toLocaleString()}원</td></tr>`;
   }
   const devTotal=`<tr style="background:#f7f8fa;font-weight:700"><td>합계</td><td style="text-align:center">${totalQty}대</td><td style="text-align:center">100%</td><td style="text-align:right;color:var(--blue)">${totalRent.toLocaleString()}원</td></tr>`;
   document.getElementById('stats-device-body').innerHTML=devList.map(([k,v])=>devRow(k,v)).join('')+devTotal;
