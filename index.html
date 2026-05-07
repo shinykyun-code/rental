@@ -1137,6 +1137,11 @@ function dbxApplyData(d){
     if(d.nextExtraId)   nextExtraId   = d.nextExtraId;
     if(d.nextDocId)     nextDocId     = d.nextDocId;
     if(d.nextStaffId)   nextStaffId   = d.nextStaffId;
+    // [BUGFIX] 로드한 데이터에 nextNo가 없거나 기존 계약과 충돌하면 보정
+    {
+      const _maxNo = CONTRACTS.reduce((m,c)=>Math.max(m, Number(c.no)||0), 0);
+      if(nextNo <= _maxNo) nextNo = _maxNo + 1;
+    }
     // 계정 정보 갱신 (autoSave 트리거하지 않음)
     if(d.ACCOUNTS && typeof d.ACCOUNTS==='object' && Object.keys(d.ACCOUNTS).length){
       localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(d.ACCOUNTS));
@@ -1238,6 +1243,11 @@ function loadFromLocal(){
     if(d.nextExtraId)   nextExtraId   = d.nextExtraId;
     if(d.nextDocId)     nextDocId     = d.nextDocId;
     if(d.nextStaffId)   nextStaffId   = d.nextStaffId;
+    // [BUGFIX] 로드한 데이터에 nextNo가 없거나 기존 계약과 충돌하면 보정
+    {
+      const _maxNo = CONTRACTS.reduce((m,c)=>Math.max(m, Number(c.no)||0), 0);
+      if(nextNo <= _maxNo) nextNo = _maxNo + 1;
+    }
     if(d.ACCOUNTS && typeof d.ACCOUNTS==='object' && Object.keys(d.ACCOUNTS).length){
       saveAccounts(d.ACCOUNTS);
     }
@@ -1381,6 +1391,17 @@ function payStatus(c){
 }
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function baseName(name){ return (name||'').replace(/\s*[\(\（【\[].*/,'').trim(); }
+function normalizeName(name){
+  return (name||'')
+    .replace(/[\u200b\u200c\u200d\ufeff]/g,'')        // zero-width 문자 제거
+    .replace(/\u3000/g,' ')                            // 전각 공백 → 일반 공백
+    .replace(/㈜|㈠|㈕/g,'')                           // 단일 문자 법인 기호 제거
+    .replace(/주식회사|유한회사|유한책임회사/g,'')      // 풀네임 법인 표기 제거
+    .replace(/[\(\（]\s*(주|유|재|사)\s*[\)\）]/g,'')  // (주) (유) (재) (사) 및 전각 괄호 변형 제거
+    .replace(/\s+/g,' ')                               // 연속 공백 1개로
+    .trim();
+}
+function firstWord(name){ return normalizeName(name).split(/[\s\(\（【\[]/)[0]||''; }
 function today(){return new Date().toISOString().slice(0,10)}
 function fileIcon(name){
   const ext=(name||'').split('.').pop().toLowerCase();
@@ -1658,6 +1679,15 @@ function applyFilters(){
     return true;
   });
 
+  // 그룹별 대표 등록일(최소 등록일) 사전 계산 - 해지 제외 항목 기준
+  const groupFirstDate = {};
+  filtered.forEach(c=>{
+    if(c.terminated) return;
+    const g = firstWord(c.name);
+    const d = c.reg_date || '9999-99-99';
+    if(!(g in groupFirstDate) || d < groupFirstDate[g]) groupFirstDate[g] = d;
+  });
+
   filtered.sort((a,b)=>{
     // 해지 업체는 항상 맨 뒤
     if(a.terminated && !b.terminated) return 1;
@@ -1667,12 +1697,17 @@ function applyFilters(){
       return da>db?1:da<db?-1:0;
     }
 
-    // 기본 정렬: 거래처명 그룹화 → 등록일 오래된 순(오름차순)
-    if(sortKey==='name'){
-      const ba=baseName(a.name), bb=baseName(b.name);
-      if(ba!==bb) return ba>bb?1:ba<bb?-1:0;
+    // 기본 정렬: 그룹 대표 등록일 → 그룹명 → 그룹 내 등록일 → 넘버
+    if(sortKey==='name' || sortKey==='no'){
+      const ga=firstWord(a.name), gb=firstWord(b.name);
+      if(ga!==gb){
+        const fa=groupFirstDate[ga]||'', fb=groupFirstDate[gb]||'';
+        if(fa!==fb) return fa>fb?1:-1;
+        return ga>gb?1:-1;
+      }
       const da=a.reg_date||'', db=b.reg_date||'';
-      return da>db?1:da<db?-1:0;
+      if(da!==db) return da>db?1:da<db?-1:0;
+      return (a.no||0)-(b.no||0);
     }
 
     let av=sortKey==='latest_payment'?latestPayment(a):sortKey==='latest_visit'?latestVisit(a):a[sortKey];
@@ -1939,8 +1974,13 @@ function saveContract(){
     if(pendingFiles.length) c.files=[...(c.files||[]),...pendingFiles.map(f=>({id:Date.now()+Math.random(),...f}))];
     alert('수정되었습니다.');
   } else {
+    // [BUGFIX] 백업 파일 로드 등으로 nextNo가 기존 계약번호와 충돌할 수 있어
+    // 항상 현재 CONTRACTS의 최대 no + 1 으로 보정 후 사용한다.
+    const maxNo = CONTRACTS.reduce((m,c)=>Math.max(m, Number(c.no)||0), 0);
+    if(nextNo <= maxNo) nextNo = maxNo + 1;
+    const newNo = nextNo++;
     CONTRACTS.push({
-      no:nextNo++,reg_date:document.getElementById('f-regdate').value,
+      no:newNo,reg_date:document.getElementById('f-regdate').value,
       name,cms:document.getElementById('f-cms').value,
       manager:document.getElementById('f-manager').value.trim(),
       phone:document.getElementById('f-phone').value.trim(),
@@ -2065,7 +2105,7 @@ function restoreContract(no){
 }
 
 function confirmDelete(no){ confirmTerminate(no); } // 하위호환
-function cancelEdit(){editingNo=null;showPage('list');}
+function cancelEdit(){editingNo=null;clearForm();showPage('list');}
 
 // ══ 입금 등록/수정 ══
 function openPayEdit(){
@@ -2231,11 +2271,23 @@ function renderPayment(){
     if(onlyMiss){const hasMiss=keys.some(k=>!c.payments[k]);if(!hasMiss) return false;}
     return !c.terminated;
   });
+  // 그룹별 대표 등록일 사전 계산
+  const payGroupFirstDate = {};
+  list.forEach(c=>{
+    const g = firstWord(c.name);
+    const d = c.reg_date || '9999-99-99';
+    if(!(g in payGroupFirstDate) || d < payGroupFirstDate[g]) payGroupFirstDate[g] = d;
+  });
   list.sort((a,b)=>{
-    const ba=baseName(a.name), bb=baseName(b.name);
-    if(ba!==bb) return ba>bb?1:ba<bb?-1:0;
+    const ga=firstWord(a.name), gb=firstWord(b.name);
+    if(ga!==gb){
+      const fa=payGroupFirstDate[ga]||'', fb=payGroupFirstDate[gb]||'';
+      if(fa!==fb) return fa<fb?-1:1;
+      return ga>gb?1:-1;
+    }
     const da=a.reg_date||'', db=b.reg_date||'';
-    return da<db?-1:da>db?1:0;
+    if(da!==db) return da<db?-1:1;
+    return (a.no||0)-(b.no||0);
   });
   const yr=toVal.slice(0,4);
   document.getElementById('pay-body').innerHTML=list.map(c=>{
@@ -2670,22 +2722,11 @@ function renderRentStats(){
   const totalQty=active.reduce((s,c)=>s+(c.qty||1),0);
   const totalRent=active.reduce((s,c)=>s+(c.rent||0),0);
   const devMap={};
-  active.forEach(c=>{
-    const key=(c.etc||'기타').toUpperCase().trim()||'기타';
-    if(!devMap[key])devMap[key]={qty:0,rent:0,colorCount:{}};
-    devMap[key].qty+=(c.qty||1);
-    devMap[key].rent+=(c.rent||0);
-    // 색상별 사용 횟수 누적 (같은 기기명에 여러 색상이 있을 경우 다수결)
-    const col=c.etc_color||'black';
-    devMap[key].colorCount[col]=(devMap[key].colorCount[col]||0)+(c.qty||1);
-  });
+  active.forEach(c=>{const key=(c.etc||'기타').toUpperCase().trim()||'기타';if(!devMap[key])devMap[key]={qty:0,rent:0};devMap[key].qty+=(c.qty||1);devMap[key].rent+=(c.rent||0);});
   const devList=Object.entries(devMap).sort((a,b)=>b[1].rent-a[1].rent);
   function devRow(k,v){
     const qPct=totalQty?Math.round(v.qty/totalQty*100):0;
-    // 가장 많이 사용된 색상 선택
-    const topColor=Object.entries(v.colorCount).sort((a,b)=>b[1]-a[1])[0]?.[0]||'black';
-    const colorCode=ETC_COLOR_MAP[topColor]||topColor;
-    return `<tr><td style="font-weight:600;color:${colorCode}">${esc(k)}</td><td style="text-align:center">${v.qty}대</td><td style="text-align:center"><span class="badge b-teal">${qPct}%</span></td><td style="text-align:right;font-weight:600;color:var(--blue)">${v.rent.toLocaleString()}원</td></tr>`;
+    return `<tr><td style="font-weight:600">${esc(k)}</td><td style="text-align:center">${v.qty}대</td><td style="text-align:center"><span class="badge b-teal">${qPct}%</span></td><td style="text-align:right;font-weight:600;color:var(--blue)">${v.rent.toLocaleString()}원</td></tr>`;
   }
   const devTotal=`<tr style="background:#f7f8fa;font-weight:700"><td>합계</td><td style="text-align:center">${totalQty}대</td><td style="text-align:center">100%</td><td style="text-align:right;color:var(--blue)">${totalRent.toLocaleString()}원</td></tr>`;
   document.getElementById('stats-device-body').innerHTML=devList.map(([k,v])=>devRow(k,v)).join('')+devTotal;
@@ -3331,6 +3372,11 @@ function loadFromGSheet() {
         if(d.nextExtraId) nextExtraId = d.nextExtraId;
         if(d.nextDocId)   nextDocId   = d.nextDocId;
         if(d.nextStaffId) nextStaffId = d.nextStaffId;
+        // [BUGFIX] 로드한 데이터에 nextNo가 없거나 기존 계약과 충돌하면 보정
+        {
+          const _maxNo = CONTRACTS.reduce((m,c)=>Math.max(m, Number(c.no)||0), 0);
+          if(nextNo <= _maxNo) nextNo = _maxNo + 1;
+        }
         if(d.ACCOUNTS && typeof d.ACCOUNTS==='object' && Object.keys(d.ACCOUNTS).length){
           console.log('🔐 구글 시트에서 계정 정보 로드:', d.ACCOUNTS);
           saveAccounts(d.ACCOUNTS);
