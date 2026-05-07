@@ -761,8 +761,10 @@ tbody td{padding:13px 12px;vertical-align:middle}
       <div class="form-grid">
         <div class="form-group">
           <label class="required">거래처</label>
-          <input class="inp" id="sm-no" type="text" list="sm-no-list" placeholder="거래처명 입력 (목록에서 선택 또는 직접 입력)" autocomplete="off">
+          <input class="inp" id="sm-no" type="text" list="sm-no-list" placeholder="거래처명 입력 (목록에서 선택 또는 직접 입력)" autocomplete="off" oninput="onSvcNameInput()">
           <datalist id="sm-no-list"></datalist>
+          <input type="hidden" id="sm-target-no" value="">
+          <div id="sm-target-info" style="font-size:12px;color:#6b7280;margin-top:4px;min-height:16px"></div>
         </div>
         <div class="form-group"><label class="required">유형</label><select class="inp" id="sm-type"><option value="방문">방문</option><option value="A/S">A/S</option><option value="기타">기타</option></select></div>
         <div class="form-group"><label class="required">날짜</label><input class="inp" id="sm-date" type="date"></div>
@@ -2336,7 +2338,42 @@ function renderPayment(){
 // ══ 방문/A/S ══
 function fillContractDatalist(){
   const dl=document.getElementById('sm-no-list');
-  dl.innerHTML=CONTRACTS.map(c=>`<option value="${esc(c.name)}">${c.no}</option>`).join('');
+  // 동명 거래처 구분을 위해 No.와 주소를 라벨에 표시
+  dl.innerHTML=CONTRACTS.map(c=>{
+    const addr=c.address?` / ${esc(c.address)}`:'';
+    return `<option value="${esc(c.name)}" label="No.${c.no}${addr}">No.${c.no}${addr}</option>`;
+  }).join('');
+}
+// 거래처 input 변경 시 hidden field와 안내문 갱신
+function onSvcNameInput(){
+  const inputName=document.getElementById('sm-no').value.trim();
+  const hidden=document.getElementById('sm-target-no');
+  const info=document.getElementById('sm-target-info');
+  // 사용자가 이름을 직접 수정하기 시작하면 기존 targetNo는 더 이상 유효하지 않을 수 있음
+  // 정확히 일치하는 거래처가 1개면 자동 매칭, 여러 개면 경고 표시
+  const matches=CONTRACTS.filter(c=>c.name===inputName);
+  if(matches.length===1){
+    hidden.value=matches[0].no;
+    const addr=matches[0].address?` · ${matches[0].address}`:'';
+    info.innerHTML=`✓ No.${matches[0].no}${esc(addr)}`;
+    info.style.color='#15803d';
+  }else if(matches.length>1){
+    // 동명 거래처가 여러 개 — 기존 targetNo가 그 중 하나면 유지, 아니면 비움
+    const cur=hidden.value?parseInt(hidden.value):null;
+    const stillValid=cur && matches.find(c=>c.no===cur);
+    if(stillValid){
+      const addr=stillValid.address?` · ${stillValid.address}`:'';
+      info.innerHTML=`✓ No.${stillValid.no}${esc(addr)} <span style="color:#dc2626">(동명 ${matches.length}건 — 정확히 이 거래처에 저장됩니다)</span>`;
+      info.style.color='#15803d';
+    }else{
+      hidden.value='';
+      info.innerHTML=`<span style="color:#dc2626">⚠ 동명 거래처 ${matches.length}건 — 거래처 목록에서 다시 선택하세요 (No.${matches.map(c=>c.no).join(', No.')})</span>`;
+    }
+  }else{
+    // 매칭되는 등록 거래처 없음 → 직접 입력으로 저장됨
+    hidden.value='';
+    info.innerHTML=inputName?`<span style="color:#9ca3af">미등록 거래처명 — 직접 입력 값으로 저장됩니다</span>`:'';
+  }
 }
 function openServiceAdd(no){
   editingSvcId=null;
@@ -2347,12 +2384,16 @@ function openServiceAdd(no){
   document.getElementById('sm-type').value='방문';
   fillContractDatalist();
   const inp=document.getElementById('sm-no');
+  const hidden=document.getElementById('sm-target-no');
   if(no){
     const c=CONTRACTS.find(x=>x.no===no);
     inp.value=c?c.name:'';
+    hidden.value=c?c.no:'';
   }else{
     inp.value='';
+    hidden.value='';
   }
+  onSvcNameInput(); // 안내문 갱신
   const psel=document.getElementById('sm-person');
   psel.innerHTML='<option value="">-- 선택 --</option>'+STAFF_LIST.map(s=>`<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
   openModal('svc-modal');
@@ -2368,13 +2409,17 @@ function editService(id){
   document.getElementById('sm-result').value=s.result||'';
   fillContractDatalist();
   const inp=document.getElementById('sm-no');
+  const hidden=document.getElementById('sm-target-no');
   // 직접 입력으로 저장된 customName 우선, 없으면 등록된 거래처명
   if(s.customName){
     inp.value=s.customName;
+    hidden.value=''; // 직접입력 이력 — 등록 거래처에 매핑되지 않음
   }else{
     const c=CONTRACTS.find(x=>x.no===s.no);
     inp.value=c?c.name:'';
+    hidden.value=s.no||''; // 기존 이력의 no를 보존(동명 거래처 안전)
   }
+  onSvcNameInput(); // 안내문 갱신
   const psel=document.getElementById('sm-person');
   psel.innerHTML='<option value="">-- 선택 --</option>'+STAFF_LIST.map(st=>`<option value="${esc(st.name)}" ${st.name===s.person?'selected':''}>${esc(st.name)}</option>`).join('');
   openModal('svc-modal');
@@ -2385,14 +2430,33 @@ function saveService(){
   const content=document.getElementById('sm-content').value.trim();
   if(!inputName){alert('거래처명을 입력하세요.');return;}
   if(!date||!content){alert('날짜와 내용을 입력하세요.');return;}
-  // 입력값이 등록된 거래처명과 정확히 일치하면 그 거래처의 no 사용, 아니면 customName으로 저장
-  const matched=CONTRACTS.find(c=>c.name===inputName);
+  // 1순위: hidden field의 targetNo (openServiceAdd/editService에서 정확히 세팅됨, 동명 거래처 안전)
+  // 2순위: 입력값과 정확히 일치하는 거래처가 단 1개일 때만 자동 매칭
+  // 3순위: 동명이 여러 개거나 매칭 안 되면 직접 입력(customName)으로 저장
+  const targetNoStr=document.getElementById('sm-target-no').value;
+  const targetNo=targetNoStr?parseInt(targetNoStr):null;
   let no, custom='';
-  if(matched){
-    no=matched.no;
+  if(targetNo){
+    // hidden에 지정된 거래처가 실제로 존재하고 이름도 일치하는지 검증
+    const target=CONTRACTS.find(c=>c.no===targetNo);
+    if(target && target.name===inputName){
+      no=target.no;
+    }else{
+      // hidden과 input이 어긋남 → 사용자가 이름을 바꿨을 수 있음 → 재매칭
+      const matches=CONTRACTS.filter(c=>c.name===inputName);
+      if(matches.length===1){ no=matches[0].no; }
+      else if(matches.length>1){
+        alert('동명 거래처가 여러 건 있습니다. 거래처 목록에서 다시 선택해주세요.\n해당 거래처: '+matches.map(c=>'No.'+c.no).join(', '));
+        return;
+      }else{ no=0; custom=inputName; }
+    }
   }else{
-    no=0;
-    custom=inputName;
+    const matches=CONTRACTS.filter(c=>c.name===inputName);
+    if(matches.length===1){ no=matches[0].no; }
+    else if(matches.length>1){
+      alert('동명 거래처가 여러 건 있습니다. 거래처 목록에서 다시 선택해주세요.\n해당 거래처: '+matches.map(c=>'No.'+c.no).join(', '));
+      return;
+    }else{ no=0; custom=inputName; }
   }
   const rec={no,date,type:document.getElementById('sm-type').value,content,
     result:document.getElementById('sm-result').value.trim(),
