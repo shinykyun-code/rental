@@ -2439,16 +2439,27 @@ function editService(id){
   fillContractDatalist();
   const inp=document.getElementById('sm-no');
   const hidden=document.getElementById('sm-target-no');
+  const info=document.getElementById('sm-target-info');
   // 직접 입력으로 저장된 customName 우선, 없으면 등록된 거래처명
+  // ※ onSvcNameInput()을 호출하면 이름 기반 자동매칭이 일어나
+  //   같은 이름의 다른 거래처로 잘못 매핑될 수 있으므로,
+  //   편집 모드에서는 저장된 s.no/customName을 그대로 사용하고 안내문만 직접 표시한다.
   if(s.customName){
     inp.value=s.customName;
     hidden.value=''; // 직접입력 이력 — 등록 거래처에 매핑되지 않음
+    info.innerHTML=`<span style="color:#9ca3af">미등록 거래처명 — 직접 입력 값으로 저장됩니다</span>`;
   }else{
     const c=CONTRACTS.find(x=>x.no===s.no);
     inp.value=c?c.name:'';
     hidden.value=s.no||''; // 기존 이력의 no를 보존(동명 거래처 안전)
+    if(c){
+      const addr=c.address?` · ${c.address}`:'';
+      info.innerHTML=`✓ No.${c.no}${esc(addr)}`;
+      info.style.color='#15803d';
+    }else{
+      info.innerHTML=`<span style="color:#dc2626">⚠ 매핑된 거래처를 찾을 수 없습니다 (No.${s.no||'-'})</span>`;
+    }
   }
-  onSvcNameInput(); // 안내문 갱신
   const psel=document.getElementById('sm-person');
   psel.innerHTML='<option value="">-- 선택 --</option>'+STAFF_LIST.map(st=>`<option value="${esc(st.name)}" ${st.name===s.person?'selected':''}>${esc(st.name)}</option>`).join('');
   openModal('svc-modal');
