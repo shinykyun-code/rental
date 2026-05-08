@@ -414,11 +414,15 @@ tbody td{padding:13px 12px;vertical-align:middle}
     <div class="controls" style="flex-direction:column;gap:0;padding:0">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)">
         <span style="font-size:11px;font-weight:700;color:var(--blue);white-space:nowrap;background:#e0eaff;padding:3px 8px;border-radius:4px">1차</span>
-        <input class="inp inp-search" style="flex:1;min-width:150px" type="text" id="srch" placeholder="🔍 거래처명, A/S담당, 주소, 기기, 렌탈금 검색...">
+        <input class="inp inp-search" style="flex:1;min-width:150px" type="text" id="srch" placeholder="🔍 거래처명, 담당자, 주소, 기기, 렌탈금 검색...">
         <select class="inp" id="flt-cms"><option value="">전체 유형</option><option value="CMS">CMS</option><option value="현금">현금</option><option value="카드">카드</option></select>
       <select class="inp" id="flt-paid">
         <option value="">납부상태 전체</option><option value="paid">납부 완료</option>
-        <option value="late">미납 1개월↑</option><option value="very_late">미납 3개월↑</option>
+        <option value="m1">미납 1개월</option>
+        <option value="m2">미납 2개월</option>
+        <option value="m3">미납 3개월</option>
+        <option value="m4">미납 4개월</option>
+        <option value="m5">미납 5개월↑</option>
       </select>
       <select class="inp" id="flt-reg" multiple size="3" style="min-width:90px;height:auto" title="납부일 복수선택 (Ctrl+클릭)">
         <option value="">납부일 전체</option>
@@ -701,9 +705,9 @@ tbody td{padding:13px 12px;vertical-align:middle}
       </div>
     </div>
     <div class="modal-foot" style="justify-content:center;gap:12px;padding:16px 22px">
-      <button class="btn btn-warning btn-sm" onclick="editContract(currentNo)">✏️ 수정</button>
-      <button class="btn btn-sm" id="dm-terminate-btn" style="background:#7c3aed;color:#fff;border:none" onclick="confirmTerminate(currentNo)">🚫 해지</button>
-      <button class="btn btn-danger btn-sm" id="dm-delete-btn" onclick="confirmDeleteContract(currentNo)" style="display:none">🗑️ 삭제</button>
+      <button class="btn btn-warning btn-sm dm-action-btn" onclick="editContract(currentNo)">✏️ 수정</button>
+      <button class="btn btn-sm dm-action-btn" id="dm-terminate-btn" style="background:#7c3aed;color:#fff;border:none" onclick="confirmTerminate(currentNo)">🚫 해지</button>
+      <button class="btn btn-danger btn-sm dm-action-btn" id="dm-delete-btn" onclick="confirmDeleteContract(currentNo)" style="display:none">🗑️ 삭제</button>
       <button class="btn btn-ghost" onclick="closeModal('detail-modal')">닫기</button>
     </div>
   </div>
@@ -1370,10 +1374,16 @@ function missedMonths(c){
   const now = new Date();
   const regDate = c.reg_date ? new Date(c.reg_date) : new Date('2020-01-01');
   let missed = 0;
-  // 등록일 다음 달부터 현재까지 각 월 체크
+  // 시작월 산정: (1) 2011년 1월부터 적용, (2) 등록일의 다음 달부터 적용
+  // → 두 조건 중 더 늦은 시점을 시작월로 삼는다
+  // 등록일 다음 달
   let y = regDate.getFullYear();
   let m = regDate.getMonth() + 2; // 등록 다음 달부터
   if(m > 12){ m = 1; y++; }
+  // 2011-01보다 이른 경우 2011-01로 끌어올림
+  if(y < 2011 || (y === 2011 && m < 1)){
+    y = 2011; m = 1;
+  }
   const endY = now.getFullYear();
   const endM = now.getMonth() + 1;
   while(y < endY || (y === endY && m <= endM)){
@@ -1668,15 +1678,17 @@ function applyFilters(){
     // 해지 상태 필터
     if(fs==='active' && c.terminated) return false;
     if(fs==='terminated' && !c.terminated) return false;
-    const staffNamesF=(c.staff_ids||[]).map(getStaffName).filter(Boolean).join(' ');
-    const txt=(c.name+staffNamesF+c.address+c.etc+c.phone+(c.payment_day||'')+String(c.rent||'')).toLowerCase();
+    const txt=(c.name+(c.manager||'')+c.address+c.etc+c.phone+(c.payment_day||'')+String(c.rent||'')).toLowerCase();
     if(q&&!txt.includes(q)) return false;
     if(q2&&!txt.includes(q2)) return false;
     if(cm&&c.cms!==cm) return false;
     const m=missedMonths(c);
     if(fp==='paid'&&m>0) return false;
-    if(fp==='late'&&m<1) return false;
-    if(fp==='very_late'&&m<3) return false;
+    if(fp==='m1'&&m!==1) return false;
+    if(fp==='m2'&&m!==2) return false;
+    if(fp==='m3'&&m!==3) return false;
+    if(fp==='m4'&&m!==4) return false;
+    if(fp==='m5'&&m<5) return false;
     if(selYears.length && !selYears.includes(c.payment_day||'')) return false;
     return true;
   });
@@ -1893,6 +1905,23 @@ function renderLogList(no){
 function switchDtab(i){
   document.querySelectorAll('.dtab').forEach((t,idx)=>t.classList.toggle('active',idx===i));
   document.querySelectorAll('.dtab-panel').forEach((p,idx)=>p.classList.toggle('active',idx===i));
+  // 기본정보 탭(0)일 때만 수정/해지/삭제 버튼 표시, 그 외 탭은 닫기 버튼만
+  document.querySelectorAll('.dm-action-btn').forEach(btn=>{
+    if(i!==0){
+      // 탭 이동 시: 첫 진입이면 현재 display 값을 보존
+      if(btn.getAttribute('data-original-display')===null){
+        btn.setAttribute('data-original-display', btn.style.display||'');
+      }
+      btn.style.display='none';
+    } else {
+      // 기본정보 복귀: 보존된 원래 display 값으로 복원
+      const orig=btn.getAttribute('data-original-display');
+      if(orig!==null){
+        btn.style.display=orig;
+        btn.removeAttribute('data-original-display');
+      }
+    }
+  });
   if(i===4) renderCounterTab();
 }
 
