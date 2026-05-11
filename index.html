@@ -2255,12 +2255,21 @@ function renderPayment(){
     if(onlyMiss){const hasMiss=keys.some(k=>!c.payments[k]);if(!hasMiss) return false;}
     return !c.terminated;
   });
-  // 그룹별 대표 등록일 사전 계산
+  // 그룹별 대표 등록일 사전 계산 (회사그룹 + 지점그룹 2단계)
   const payGroupFirstDate = {};
+  const payBranchFirstDate = {};
+  function payBranchKey(c){
+    const norm = normalizeName(c.name||'');
+    const company = firstWord(c.name||'');
+    const branch = norm.startsWith(company) ? norm.slice(company.length).trim() : norm;
+    return company + '|' + branch;
+  }
   list.forEach(c=>{
     const g = firstWord(c.name);
+    const bk = payBranchKey(c);
     const d = c.reg_date || '9999-99-99';
     if(!(g in payGroupFirstDate) || d < payGroupFirstDate[g]) payGroupFirstDate[g] = d;
+    if(!(bk in payBranchFirstDate) || d < payBranchFirstDate[bk]) payBranchFirstDate[bk] = d;
   });
   list.sort((a,b)=>{
     const ga=firstWord(a.name), gb=firstWord(b.name);
@@ -2268,6 +2277,12 @@ function renderPayment(){
       const fa=payGroupFirstDate[ga]||'', fb=payGroupFirstDate[gb]||'';
       if(fa!==fb) return fa<fb?-1:1;
       return ga>gb?1:-1;
+    }
+    const bka=payBranchKey(a), bkb=payBranchKey(b);
+    if(bka!==bkb){
+      const ba=payBranchFirstDate[bka]||'', bb=payBranchFirstDate[bkb]||'';
+      if(ba!==bb) return ba<bb?-1:1;
+      return bka>bkb?1:-1;
     }
     const da=a.reg_date||'', db=b.reg_date||'';
     if(da!==db) return da<db?-1:1;
