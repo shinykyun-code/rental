@@ -1372,6 +1372,7 @@ function normalizeName(name){
     .replace(/㈜|㈠|㈕/g,'')                           // 단일 문자 법인 기호 제거
     .replace(/주식회사|유한회사|유한책임회사/g,'')      // 풀네임 법인 표기 제거
     .replace(/[\(\（]\s*(주|유|재|사)\s*[\)\）]/g,'')  // (주) (유) (재) (사) 및 전각 괄호 변형 제거
+    .replace(/(?:^|\s)(주|유|재|사)[\)\）]\s*/g,' ')   // '주)', '유)', '재)', '사)' (앞 괄호 없는 형태)
     .replace(/\s+/g,' ')                               // 연속 공백 1개로
     .trim();
 }
@@ -1649,13 +1650,25 @@ function applyFilters(){
     return true;
   });
 
-  // 그룹별 대표 등록일(최소 등록일) 사전 계산 - 해지 제외 항목 기준
+  // 그룹별 대표 등록일 사전 계산 (해지 제외)
+  // 1단계: 회사(firstWord) 그룹의 첫 등록일
+  // 2단계: '회사|지점(나머지)' 그룹의 첫 등록일
   const groupFirstDate = {};
+  const branchFirstDate = {};
+  function branchKey(c){
+    const norm = normalizeName(c.name||'');
+    const company = firstWord(c.name||'');
+    // 정규화된 이름에서 회사명을 제거한 나머지 = 지점/부서
+    const branch = norm.startsWith(company) ? norm.slice(company.length).trim() : norm;
+    return company + '|' + branch;
+  }
   filtered.forEach(c=>{
     if(c.terminated) return;
     const g = firstWord(c.name);
+    const bk = branchKey(c);
     const d = c.reg_date || '9999-99-99';
     if(!(g in groupFirstDate) || d < groupFirstDate[g]) groupFirstDate[g] = d;
+    if(!(bk in branchFirstDate) || d < branchFirstDate[bk]) branchFirstDate[bk] = d;
   });
 
   filtered.sort((a,b)=>{
@@ -1667,7 +1680,7 @@ function applyFilters(){
       return da>db?1:da<db?-1:0;
     }
 
-    // 기본 정렬: 그룹 대표 등록일 → 그룹명 → 그룹 내 등록일 → 넘버
+    // 기본 정렬: 회사그룹 대표 등록일 → 회사명 → 지점그룹 대표 등록일 → 지점명 → 등록일 → 넘버
     if(sortKey==='name' || sortKey==='no'){
       const ga=firstWord(a.name), gb=firstWord(b.name);
       if(ga!==gb){
@@ -1675,6 +1688,14 @@ function applyFilters(){
         if(fa!==fb) return fa>fb?1:-1;
         return ga>gb?1:-1;
       }
+      // 같은 회사 그룹: 지점 그룹으로 다시 묶음
+      const bka=branchKey(a), bkb=branchKey(b);
+      if(bka!==bkb){
+        const ba=branchFirstDate[bka]||'', bb=branchFirstDate[bkb]||'';
+        if(ba!==bb) return ba>bb?1:-1;
+        return bka>bkb?1:-1;
+      }
+      // 같은 지점 그룹 내부: 등록일순
       const da=a.reg_date||'', db=b.reg_date||'';
       if(da!==db) return da>db?1:da<db?-1:0;
       return (a.no||0)-(b.no||0);
