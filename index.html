@@ -367,7 +367,6 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
   <div class="nav-tab active" onclick="showPage('list')">계약 목록</div>
   <div class="nav-tab" onclick="showPage('register')">신규 등록</div>
   <div class="nav-tab" onclick="showPage('payment')">입금 관리</div>
-  <div class="nav-tab" onclick="showPage('service')">방문/A/S</div>
   <div class="nav-tab" onclick="showPage('docs')">📁 계약서류</div>
   <div class="nav-tab" id="nav-stats-tab" onclick="showPage('rentstats')" style="display:none">📊 임대통계</div>
   <div class="nav-tab" id="nav-inventory-tab" onclick="showPage('inventory')" style="display:none">🖨️ 장비보유</div>
@@ -460,7 +459,6 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
           <th class="resizable">기기</th>
           <th class="resizable">수량</th>
           <th class="resizable">최근납부일</th>
-          <th class="resizable">최근방문일</th>
           <th class="resizable">납부상태</th>
         </tr></thead>
         <tbody id="tbl-body"></tbody>
@@ -610,34 +608,6 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
   </div>
 </div>
 
-<!-- ══ PAGE: 방문/A/S ══ -->
-<div class="page" id="page-service">
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">방문 / A/S 이력 관리</span>
-      <button class="btn btn-primary" onclick="openServiceAdd()">＋ 이력 등록</button>
-    </div>
-    <div class="controls">
-      <input class="inp inp-search" type="text" id="svc-srch" placeholder="🔍 거래처명, 내용 검색...">
-      <select class="inp" id="svc-type"><option value="">전체 유형</option><option value="방문">방문</option><option value="A/S">A/S</option><option value="기타">기타</option></select>
-      <select class="inp" id="svc-staff"><option value="">전체 담당자</option></select>
-      <select class="inp" id="svc-year"><option value="">전체 연도</option></select>
-    </div>
-    <div class="info-row" id="svc-info"></div>
-    <div class="tbl-wrap">
-      <table>
-        <thead><tr><th onclick="sortSvc('date')">날짜</th><th>거래처</th><th>유형</th><th>내용</th><th>담당자</th><th>결과</th><th>관리</th></tr></thead>
-        <tbody id="svc-body"></tbody>
-      </table>
-    </div>
-    <div class="pg">
-      <span id="svc-pg-info"></span>
-      <button id="svc-prev" onclick="changeSvcPage(-1)">◀ 이전</button>
-      <button id="svc-next" onclick="changeSvcPage(1)">다음 ▶</button>
-    </div>
-  </div>
-</div>
-
 <!-- ══ PAGE: 계약서류 ══ -->
 <div class="page" id="page-docs">
   <div class="card">
@@ -668,8 +638,7 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
         <div class="dtab active" onclick="switchDtab(0)">기본정보</div>
         <div class="dtab" onclick="switchDtab(1)">납부이력</div>
         <div class="dtab" onclick="switchDtab(2)">첨부파일</div>
-        <div class="dtab" onclick="switchDtab(3)">방문/A/S</div>
-        <div class="dtab" onclick="switchDtab(4)">출력카운터</div>
+        <div class="dtab" onclick="switchDtab(3)">출력카운터</div>
       </div>
       <div class="dtab-panel active" id="dtab-0"><div class="form-grid" id="dm-info"></div></div>
       <div class="dtab-panel" id="dtab-1">
@@ -696,13 +665,6 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
         <div class="file-list" id="dm-files"></div>
       </div>
       <div class="dtab-panel" id="dtab-3">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <span style="font-size:13px;color:var(--text3)">방문 · A/S 이력</span>
-          <button class="btn btn-sm btn-success" onclick="openServiceAdd(currentNo)">＋ 이력 추가</button>
-        </div>
-        <div class="log-list" id="dm-logs"></div>
-      </div>
-      <div class="dtab-panel" id="dtab-4">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <span style="font-size:13px;color:var(--text3)">월별 출력 카운터 (흑백·칼라)</span>
           <select class="inp" id="counter-year" style="width:100px;font-size:12px;padding:5px 8px" onchange="renderCounterTab()">
@@ -760,33 +722,6 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal('extra-modal')">취소</button>
       <button class="btn btn-success" onclick="saveExtraPay()">저장</button>
-    </div>
-  </div>
-</div>
-
-<!-- ══ MODAL: 방문/AS 등록 ══ -->
-<div class="modal-bg" id="svc-modal">
-  <div class="modal">
-    <div class="modal-head"><h3 id="sm-title">방문 / A/S 이력 등록</h3><button class="modal-close" onclick="closeModal('svc-modal')">×</button></div>
-    <div class="modal-body">
-      <div class="form-grid">
-        <div class="form-group">
-          <label class="required">거래처</label>
-          <input class="inp" id="sm-no" type="text" list="sm-no-list" placeholder="거래처명 입력 (목록에서 선택 또는 직접 입력)" autocomplete="off" oninput="onSvcNameInput()">
-          <datalist id="sm-no-list"></datalist>
-          <input type="hidden" id="sm-target-no" value="">
-          <div id="sm-target-info" style="font-size:12px;color:#6b7280;margin-top:4px;min-height:16px"></div>
-        </div>
-        <div class="form-group"><label class="required">유형</label><select class="inp" id="sm-type"><option value="방문">방문</option><option value="A/S">A/S</option><option value="기타">기타</option></select></div>
-        <div class="form-group"><label class="required">날짜</label><input class="inp" id="sm-date" type="date"></div>
-        <div class="form-group"><label>담당자</label><select class="inp" id="sm-person"><option value="">-- 선택 --</option></select></div>
-        <div class="form-group form-full"><label class="required">내용</label><textarea class="inp" id="sm-content" placeholder="방문 목적 또는 A/S 내용..."></textarea></div>
-        <div class="form-group form-full"><label>결과/처리내용</label><textarea class="inp" id="sm-result" placeholder="처리 결과..."></textarea></div>
-      </div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn btn-ghost" onclick="closeModal('svc-modal')">취소</button>
-      <button class="btn btn-primary" onclick="saveService()">저장</button>
     </div>
   </div>
 </div>
@@ -1357,11 +1292,6 @@ let formStaffIds=[];
 const PAGE_SIZE=20, SVC_PAGE=15;
 
 // ══ 유틸 ══
-function latestVisit(c){
-  const logs=SERVICES.filter(s=>s.no===c.no&&s.date);
-  if(!logs.length) return null;
-  return logs.sort((a,b)=>b.date.localeCompare(a.date))[0].date;
-}
 function latestPayment(c){
   const pays = c.payments||{};
   // _memo 키 제외, 값이 있는 키만 필터
@@ -1450,7 +1380,7 @@ function showPage(id){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
-  const idx={list:0,register:1,payment:2,service:3,docs:4,rentstats:5,inventory:6}[id];
+  const idx={list:0,register:1,payment:2,docs:3,rentstats:4,inventory:5}[id];
   const tabs=document.querySelectorAll('.nav-tab');
   if(tabs[idx]) tabs[idx].classList.add('active');
   if(id==='list') renderList();
@@ -1467,7 +1397,6 @@ function showPage(id){
     }
     renderPayment();
   }
-  if(id==='service'){refreshSvcStaffFilter();renderService();}
   if(id==='docs') renderDocs();
   if(id==='rentstats') renderRentStats();
   if(id==='inventory'){ renderInventory(); renderSupply(); }
@@ -1529,11 +1458,6 @@ function deleteStaff(id){
   formStaffIds=formStaffIds.filter(x=>x!==id);
   CONTRACTS.forEach(c=>c.staff_ids=c.staff_ids.filter(x=>x!==id));
   renderStaffMgrList(); renderStaffTags(); autoSave();
-}
-function refreshSvcStaffFilter(){
-  const sel=document.getElementById('svc-staff');
-  sel.innerHTML='<option value="">전체 담당자</option>'+
-    STAFF_LIST.map(s=>`<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
 }
 
 // ══ 파일 첨부 (등록화면) ══
@@ -1731,8 +1655,8 @@ function applyFilters(){
       return (a.no||0)-(b.no||0);
     }
 
-    let av=sortKey==='latest_payment'?latestPayment(a):sortKey==='latest_visit'?latestVisit(a):a[sortKey];
-    let bv=sortKey==='latest_payment'?latestPayment(b):sortKey==='latest_visit'?latestVisit(b):b[sortKey];
+    let av=sortKey==='latest_payment'?latestPayment(a):a[sortKey];
+    let bv=sortKey==='latest_payment'?latestPayment(b):b[sortKey];
     av=av||''; bv=bv||'';
     return sortDir*(av>bv?1:av<bv?-1:0);
   });
@@ -1757,7 +1681,6 @@ function renderList(){
   const rows = filtered.map(c=>{
     const ps=payStatus(c);
     const lp=latestPayment(c)||'-';
-    const lv=latestVisit(c);
     const rowStyle=c.terminated?'opacity:.45;background:#f9fafb;':'';
     const statusBadge=c.terminated
       ? `<span class="badge b-gray">해지 ${c.terminate_date||''}</span>`
@@ -1768,15 +1691,15 @@ function renderList(){
     const cmsBadgeCls=c.cms==='CMS'?'b-cms':c.cms==='카드'?'b-purple':'b-cash';
     const rentMemo=c.rent_memo||'';
     const rentMemoIcon=rentMemo?`<span style="margin-left:4px;font-size:10px;background:#fef9c3;color:#854d0e;padding:1px 5px;border-radius:3px;font-weight:600;cursor:pointer" title="${esc(rentMemo)}">메모</span>`:'';
-    let lvStyle='font-size:12px;';
-    if(lv){const days=Math.floor((new Date()-new Date(lv))/(86400000));if(days>90)lvStyle+='color:#dc2626;font-weight:600';else if(days>30)lvStyle+='color:#d97706;font-weight:600';else lvStyle+='color:#16a34a';}else{lvStyle+='color:#9ca3af';}
-    return {c, ps, lp, lv, rowStyle, statusBadge, nameBadge, rentColor, cmsBadgeCls, rentMemoIcon, lvStyle};
+    const contractMemo=c.contract_memo||'';
+    const contractMemoIcon=contractMemo?`<span style="margin-left:4px;font-size:10px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:3px;font-weight:600;cursor:pointer" title="${esc(contractMemo)}">메모</span>`:'';
+    return {c, ps, lp, rowStyle, statusBadge, nameBadge, rentColor, cmsBadgeCls, rentMemoIcon, contractMemoIcon};
   });
 
   // PC 테이블
-  document.getElementById('tbl-body').innerHTML=rows.map(({c,lp,lv,rowStyle,statusBadge,nameBadge,rentColor,cmsBadgeCls,rentMemoIcon,lvStyle})=>`<tr onclick="openDetail(${c.no})" style="${rowStyle}">
+  document.getElementById('tbl-body').innerHTML=rows.map(({c,lp,rowStyle,statusBadge,nameBadge,rentColor,cmsBadgeCls,rentMemoIcon,contractMemoIcon})=>`<tr onclick="openDetail(${c.no})" style="${rowStyle}">
       <td style="font-size:11px;color:var(--text3);white-space:nowrap">${c.reg_date?c.reg_date.slice(2).replace(/-/g,'.'):'-'}</td>
-      <td style="font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.name)}">${nameBadge}${esc(c.name)}</td>
+      <td style="font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.name)}">${nameBadge}<span onclick="event.stopPropagation();openContractMemo(${c.no})" style="cursor:pointer">${esc(c.name)}${contractMemoIcon}</span></td>
       <td><span class="badge ${cmsBadgeCls}">${c.cms}</span></td>
       <td style="font-size:12px;color:var(--text3)">${esc(c.payment_day||'-')}</td>
       <td style="${rentColor};cursor:pointer" onclick="event.stopPropagation();openRentMemo(${c.no})">${c.rent.toLocaleString()}원${rentMemoIcon}</td>
@@ -1785,18 +1708,17 @@ function renderList(){
       <td style="color:${c.etc_color&&c.etc_color!=='black'?ETC_COLOR_MAP[c.etc_color]||c.etc_color:'#888'};font-size:12px;font-weight:600">${esc(c.etc.toUpperCase())}</td>
       <td style="text-align:center;font-size:12px;color:var(--text3)">${c.qty||1}</td>
       <td style="font-size:12px">${lp}</td>
-      <td style="${lvStyle}">${lv||'-'}</td>
       <td>${statusBadge}</td>
     </tr>`).join('');
 
   // 모바일 카드
   const mobileEl = document.getElementById('mobile-card-list');
   if(mobileEl){
-    mobileEl.innerHTML = rows.map(({c,statusBadge,nameBadge,rentColor,cmsBadgeCls,rentMemoIcon,lp,lv,lvStyle})=>{
+    mobileEl.innerHTML = rows.map(({c,statusBadge,nameBadge,rentColor,cmsBadgeCls,rentMemoIcon,contractMemoIcon,lp})=>{
       const regShort = c.reg_date?c.reg_date.slice(2).replace(/-/g,'.'):'';
       return `<div class="m-card${c.terminated?' terminated':''}" onclick="openDetail(${c.no})">
         <div class="m-card-top">
-          <div class="m-card-name">${nameBadge}${esc(c.name)}</div>
+          <div class="m-card-name" onclick="event.stopPropagation();openContractMemo(${c.no})" style="cursor:pointer">${nameBadge}${esc(c.name)}${contractMemoIcon}</div>
           ${statusBadge}
         </div>
         <div class="m-card-mid">
@@ -1806,7 +1728,6 @@ function renderList(){
         </div>
         <div class="m-card-bot">
           <span>📅 ${regShort} 등록 &nbsp;|&nbsp; 📞 ${esc(c.phone||'-')}</span>
-          <span style="${lvStyle}">방문 ${lv||'-'}</span>
         </div>
         <div style="margin-top:4px;font-size:11px;color:var(--text3)">최근납부: ${lp} &nbsp;|&nbsp; 납부일: ${esc(c.payment_day||'-')}</div>
       </div>`;
@@ -1848,7 +1769,6 @@ function openDetail(no){
   renderPayHist(c);
   renderDetailExtras(no);
   renderDetailFiles();
-  renderLogList(no);
   switchDtab(0);
   openModal('detail-modal');
 }
@@ -1889,26 +1809,6 @@ function renderDetailExtras(no){
       <button class="btn btn-xs btn-danger" onclick="confirmDeleteExtra(${e.id});event.stopPropagation()">삭제</button>
     </div>`).join('');
 }
-function renderLogList(no){
-  const logs=SERVICES.filter(s=>s.no===no).sort((a,b)=>b.date.localeCompare(a.date));
-  const el=document.getElementById('dm-logs');
-  if(!logs.length){el.innerHTML=`<div class="empty"><div class="empty-icon">📋</div>등록된 이력이 없습니다</div>`;return;}
-  el.innerHTML=logs.map(s=>`<div class="log-item">
-    <div style="flex:1">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-        <span class="log-type ${s.type==='방문'?'lt-visit':s.type==='A/S'?'lt-as':'lt-other'}">${s.type}</span>
-        <span style="font-size:11px;color:var(--text3)">${s.date}</span>
-        ${s.person?`<span style="font-size:11px;color:#888">· ${esc(s.person)}</span>`:''}
-      </div>
-      <div style="font-size:13px">${esc(s.content)}</div>
-      ${s.result?`<div style="font-size:12px;color:var(--text3);margin-top:2px">→ ${esc(s.result)}</div>`:''}
-    </div>
-    <div style="display:flex;gap:4px;flex-shrink:0">
-      <button class="btn btn-xs btn-ghost" onclick="editService(${s.id});event.stopPropagation()">수정</button>
-      <button class="btn btn-xs btn-danger" onclick="confirmDeleteSvc(${s.id});event.stopPropagation()">삭제</button>
-    </div>
-  </div>`).join('');
-}
 function switchDtab(i){
   document.querySelectorAll('.dtab').forEach((t,idx)=>t.classList.toggle('active',idx===i));
   document.querySelectorAll('.dtab-panel').forEach((p,idx)=>p.classList.toggle('active',idx===i));
@@ -1929,7 +1829,7 @@ function switchDtab(i){
       }
     }
   });
-  if(i===4) renderCounterTab();
+  if(i===3) renderCounterTab();
 }
 
 // ══ 계약 등록/수정 ══
@@ -2111,7 +2011,7 @@ function confirmDeleteContract(no){
   if(!isAdmin){ alert('관리자 권한이 필요합니다.'); return; }
   const c=CONTRACTS.find(x=>x.no===no); if(!c) return;
   showConfirm(
-    `No.${no} [${c.name}]\n\n⚠️ 거래처를 완전히 삭제하시겠습니까?\n납부기록, 방문이력 등 모든 데이터가\n복구할 수 없습니다.`,
+    `No.${no} [${c.name}]\n\n⚠️ 거래처를 완전히 삭제하시겠습니까?\n납부기록, 메모 등 모든 데이터가\n복구할 수 없습니다.`,
     ()=>{
       closeModal('confirm-modal');
       CONTRACTS  = CONTRACTS.filter(x=>x.no!==no);
@@ -2371,199 +2271,6 @@ function renderPayment(){
   }).join(''):`<tr><td colspan="6"><div class="empty"><div class="empty-icon">💰</div>추가사용료 내역이 없습니다</div></td></tr>`;
 }
 
-// ══ 방문/A/S ══
-function fillContractDatalist(){
-  const dl=document.getElementById('sm-no-list');
-  // 동명 거래처 구분을 위해 No.와 주소를 라벨에 표시
-  dl.innerHTML=CONTRACTS.map(c=>{
-    const addr=c.address?` / ${esc(c.address)}`:'';
-    return `<option value="${esc(c.name)}" label="No.${c.no}${addr}">No.${c.no}${addr}</option>`;
-  }).join('');
-}
-// 거래처 input 변경 시 hidden field와 안내문 갱신
-function onSvcNameInput(){
-  const inputName=document.getElementById('sm-no').value.trim();
-  const hidden=document.getElementById('sm-target-no');
-  const info=document.getElementById('sm-target-info');
-  // 사용자가 이름을 직접 수정하기 시작하면 기존 targetNo는 더 이상 유효하지 않을 수 있음
-  // 정확히 일치하는 거래처가 1개면 자동 매칭, 여러 개면 경고 표시
-  const matches=CONTRACTS.filter(c=>c.name===inputName);
-  if(matches.length===1){
-    hidden.value=matches[0].no;
-    const addr=matches[0].address?` · ${matches[0].address}`:'';
-    info.innerHTML=`✓ No.${matches[0].no}${esc(addr)}`;
-    info.style.color='#15803d';
-  }else if(matches.length>1){
-    // 동명 거래처가 여러 개 — 기존 targetNo가 그 중 하나면 유지, 아니면 비움
-    const cur=hidden.value?parseInt(hidden.value):null;
-    const stillValid=cur && matches.find(c=>c.no===cur);
-    if(stillValid){
-      const addr=stillValid.address?` · ${stillValid.address}`:'';
-      info.innerHTML=`✓ No.${stillValid.no}${esc(addr)} <span style="color:#dc2626">(동명 ${matches.length}건 — 정확히 이 거래처에 저장됩니다)</span>`;
-      info.style.color='#15803d';
-    }else{
-      hidden.value='';
-      info.innerHTML=`<span style="color:#dc2626">⚠ 동명 거래처 ${matches.length}건 — 거래처 목록에서 다시 선택하세요 (No.${matches.map(c=>c.no).join(', No.')})</span>`;
-    }
-  }else{
-    // 매칭되는 등록 거래처 없음 → 직접 입력으로 저장됨
-    hidden.value='';
-    info.innerHTML=inputName?`<span style="color:#9ca3af">미등록 거래처명 — 직접 입력 값으로 저장됩니다</span>`:'';
-  }
-}
-function openServiceAdd(no){
-  editingSvcId=null;
-  document.getElementById('sm-title').textContent='방문 / A/S 이력 등록';
-  document.getElementById('sm-date').value=today();
-  document.getElementById('sm-content').value='';
-  document.getElementById('sm-result').value='';
-  document.getElementById('sm-type').value='방문';
-  fillContractDatalist();
-  const inp=document.getElementById('sm-no');
-  const hidden=document.getElementById('sm-target-no');
-  if(no){
-    const c=CONTRACTS.find(x=>x.no===no);
-    inp.value=c?c.name:'';
-    hidden.value=c?c.no:'';
-  }else{
-    inp.value='';
-    hidden.value='';
-  }
-  onSvcNameInput(); // 안내문 갱신
-  const psel=document.getElementById('sm-person');
-  psel.innerHTML='<option value="">-- 선택 --</option>'+STAFF_LIST.map(s=>`<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
-  openModal('svc-modal');
-}
-function editService(id){
-  const s=SERVICES.find(x=>x.id===id);
-  if(!s) return;
-  editingSvcId=id;
-  document.getElementById('sm-title').textContent='이력 수정';
-  document.getElementById('sm-date').value=s.date;
-  document.getElementById('sm-type').value=s.type;
-  document.getElementById('sm-content').value=s.content;
-  document.getElementById('sm-result').value=s.result||'';
-  fillContractDatalist();
-  const inp=document.getElementById('sm-no');
-  const hidden=document.getElementById('sm-target-no');
-  const info=document.getElementById('sm-target-info');
-  // 직접 입력으로 저장된 customName 우선, 없으면 등록된 거래처명
-  // ※ onSvcNameInput()을 호출하면 이름 기반 자동매칭이 일어나
-  //   같은 이름의 다른 거래처로 잘못 매핑될 수 있으므로,
-  //   편집 모드에서는 저장된 s.no/customName을 그대로 사용하고 안내문만 직접 표시한다.
-  if(s.customName){
-    inp.value=s.customName;
-    hidden.value=''; // 직접입력 이력 — 등록 거래처에 매핑되지 않음
-    info.innerHTML=`<span style="color:#9ca3af">미등록 거래처명 — 직접 입력 값으로 저장됩니다</span>`;
-  }else{
-    const c=CONTRACTS.find(x=>x.no===s.no);
-    inp.value=c?c.name:'';
-    hidden.value=s.no||''; // 기존 이력의 no를 보존(동명 거래처 안전)
-    if(c){
-      const addr=c.address?` · ${c.address}`:'';
-      info.innerHTML=`✓ No.${c.no}${esc(addr)}`;
-      info.style.color='#15803d';
-    }else{
-      info.innerHTML=`<span style="color:#dc2626">⚠ 매핑된 거래처를 찾을 수 없습니다 (No.${s.no||'-'})</span>`;
-    }
-  }
-  const psel=document.getElementById('sm-person');
-  psel.innerHTML='<option value="">-- 선택 --</option>'+STAFF_LIST.map(st=>`<option value="${esc(st.name)}" ${st.name===s.person?'selected':''}>${esc(st.name)}</option>`).join('');
-  openModal('svc-modal');
-}
-function saveService(){
-  const inputName=document.getElementById('sm-no').value.trim();
-  const date=document.getElementById('sm-date').value;
-  const content=document.getElementById('sm-content').value.trim();
-  if(!inputName){alert('거래처명을 입력하세요.');return;}
-  if(!date||!content){alert('날짜와 내용을 입력하세요.');return;}
-  // 1순위: hidden field의 targetNo (openServiceAdd/editService에서 정확히 세팅됨, 동명 거래처 안전)
-  // 2순위: 입력값과 정확히 일치하는 거래처가 단 1개일 때만 자동 매칭
-  // 3순위: 동명이 여러 개거나 매칭 안 되면 직접 입력(customName)으로 저장
-  const targetNoStr=document.getElementById('sm-target-no').value;
-  const targetNo=targetNoStr?parseInt(targetNoStr):null;
-  let no, custom='';
-  if(targetNo){
-    // hidden에 지정된 거래처가 실제로 존재하고 이름도 일치하는지 검증
-    const target=CONTRACTS.find(c=>c.no===targetNo);
-    if(target && target.name===inputName){
-      no=target.no;
-    }else{
-      // hidden과 input이 어긋남 → 사용자가 이름을 바꿨을 수 있음 → 재매칭
-      const matches=CONTRACTS.filter(c=>c.name===inputName);
-      if(matches.length===1){ no=matches[0].no; }
-      else if(matches.length>1){
-        alert('동명 거래처가 여러 건 있습니다. 거래처 목록에서 다시 선택해주세요.\n해당 거래처: '+matches.map(c=>'No.'+c.no).join(', '));
-        return;
-      }else{ no=0; custom=inputName; }
-    }
-  }else{
-    const matches=CONTRACTS.filter(c=>c.name===inputName);
-    if(matches.length===1){ no=matches[0].no; }
-    else if(matches.length>1){
-      alert('동명 거래처가 여러 건 있습니다. 거래처 목록에서 다시 선택해주세요.\n해당 거래처: '+matches.map(c=>'No.'+c.no).join(', '));
-      return;
-    }else{ no=0; custom=inputName; }
-  }
-  const rec={no,date,type:document.getElementById('sm-type').value,content,
-    result:document.getElementById('sm-result').value.trim(),
-    person:document.getElementById('sm-person').value,
-    customName:custom};
-  if(editingSvcId){Object.assign(SERVICES.find(x=>x.id===editingSvcId),rec);}
-  else SERVICES.push({id:nextSvcId++,...rec});
-  closeModal('svc-modal');
-  if(currentNo===no&&document.getElementById('detail-modal').classList.contains('open')) renderLogList(no);
-  renderService(); autoSave(); alert('저장되었습니다.');
-}
-function confirmDeleteSvc(id){
-  showConfirm('이 이력을 삭제하시겠습니까?',()=>{
-    SERVICES=SERVICES.filter(s=>s.id!==id);
-    closeModal('confirm-modal');
-    if(document.getElementById('detail-modal').classList.contains('open')) renderLogList(currentNo);
-    renderService(); autoSave(); alert('삭제되었습니다.');
-  });
-}
-function renderService(){
-  const q=document.getElementById('svc-srch').value.toLowerCase();
-  const tp=document.getElementById('svc-type').value;
-  const st=document.getElementById('svc-staff').value;
-  const yr=document.getElementById('svc-year').value;
-  svcFiltered=SERVICES.filter(s=>{
-    const c=CONTRACTS.find(x=>x.no===s.no);
-    const cname=s.customName||(c?c.name:'');
-    const txt=(cname+s.content+s.result).toLowerCase();
-    if(q&&!txt.includes(q)) return false;
-    if(tp&&s.type!==tp) return false;
-    if(st&&s.person!==st) return false;
-    if(yr&&!s.date.startsWith(yr)) return false;
-    return true;
-  }).sort((a,b)=>b.date.localeCompare(a.date));
-  const start=svcPage*SVC_PAGE,end=start+SVC_PAGE;
-  const sl=svcFiltered.slice(start,end);
-  document.getElementById('svc-info').textContent=`총 ${svcFiltered.length}건`;
-  document.getElementById('svc-body').innerHTML=sl.length?sl.map(s=>{
-    const c=CONTRACTS.find(x=>x.no===s.no);
-    const cname=s.customName?`${esc(s.customName)} <span style="color:var(--text3);font-size:11px">(직접입력)</span>`:esc(c?c.name:'(삭제됨)');
-    const tCls=s.type==='방문'?'lt-visit':s.type==='A/S'?'lt-as':'lt-other';
-    return `<tr>
-      <td style="white-space:nowrap">${s.date}</td>
-      <td style="font-weight:600;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cname}</td>
-      <td><span class="log-type ${tCls}">${s.type}</span></td>
-      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.content)}">${esc(s.content)}</td>
-      <td style="color:var(--purple);font-size:12px">${esc(s.person||'-')}</td>
-      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3);font-size:12px">${esc(s.result||'-')}</td>
-      <td><div class="tbl-action">
-        <button class="btn btn-xs btn-ghost" onclick="editService(${s.id})">수정</button>
-        <button class="btn btn-xs btn-danger" onclick="confirmDeleteSvc(${s.id})">삭제</button>
-      </div></td>
-    </tr>`;
-  }).join(''):`<tr><td colspan="7"><div class="empty"><div class="empty-icon">📋</div>이력이 없습니다</div></td></tr>`;
-  const pages=Math.ceil(svcFiltered.length/SVC_PAGE)||1;
-  document.getElementById('svc-pg-info').textContent=`${svcPage+1} / ${pages} 페이지`;
-  document.getElementById('svc-prev').disabled=svcPage===0;
-  document.getElementById('svc-next').disabled=svcPage>=pages-1;
-}
-function changeSvcPage(d){svcPage+=d;renderService();}
 
 // ══ 계약서류 자료실 ══
 function handleDocFiles(files){
@@ -2674,8 +2381,6 @@ function safeOn(id, evt, fn){ const el=document.getElementById(id); if(el) el.ad
 ['srch','flt-cms','flt-paid','flt-reg','flt-status'].forEach(id=>safeOn(id,id==='srch'?'input':'change',applyFilters));
 safeOn('srch2','input',applyFilters);
 function clearSrch2(){ const el=document.getElementById('srch2'); if(el){el.value='';} applyFilters(); }
-safeOn('svc-srch','input',()=>{svcPage=0;renderService();});
-['svc-type','svc-staff','svc-year'].forEach(id=>safeOn(id,'change',()=>{svcPage=0;renderService();}));
 safeOn('doc-srch','input',renderDocs);
 ['doc-type','doc-cat'].forEach(id=>safeOn(id,'change',renderDocs));
 
@@ -2726,7 +2431,6 @@ function buildYearOptions(selId, includeAll, selectedYear){
 }
 function initYearSelects(){
   buildYearOptions('counter-year', false, new Date().getFullYear());
-  buildYearOptions('svc-year', true, null);
 }
 
 function initRegYearFilter(){
@@ -2749,6 +2453,69 @@ function saveRentMemo(del){
   const c=CONTRACTS.find(x=>x.no===rentMemoNo); if(!c) return;
   if(del){delete c.rent_memo;} else{c.rent_memo=document.getElementById('rm-memo').value.trim();}
   closeModal('rent-memo-modal'); applyFilters(); autoSave();
+}
+
+// ══ 거래처 메모 ══
+let contractMemoNo=null;
+function openContractMemo(no){
+  contractMemoNo=no;
+  const c=CONTRACTS.find(x=>x.no===no); if(!c) return;
+  document.getElementById('cm-title').textContent=`거래처 메모 — ${c.name}`;
+  document.getElementById('cm-memo').value=c.contract_memo||'';
+  document.getElementById('cm-del-btn').style.display=c.contract_memo?'':'none';
+  openModal('contract-memo-modal');
+  setTimeout(()=>document.getElementById('cm-memo').focus(),200);
+}
+function saveContractMemo(del){
+  const c=CONTRACTS.find(x=>x.no===contractMemoNo); if(!c) return;
+  if(del){delete c.contract_memo;} else{c.contract_memo=document.getElementById('cm-memo').value.trim();}
+  closeModal('contract-memo-modal'); applyFilters(); autoSave();
+}
+
+// ══ SERVICES → contract_memo 마이그레이션 (1회성) ══
+function migrateServicesToMemo(){
+  try{
+    if(localStorage.getItem('svc_migrated_v1')==='1') return;
+    if(!Array.isArray(SERVICES) || !SERVICES.length){
+      localStorage.setItem('svc_migrated_v1','1');
+      return;
+    }
+    const grouped={};
+    let skippedCustom=0;
+    SERVICES.forEach(s=>{
+      if(!s || !s.no){ if(s && s.customName) skippedCustom++; return; }
+      if(!grouped[s.no]) grouped[s.no]=[];
+      grouped[s.no].push(s);
+    });
+    let migratedContracts=0, migratedRecords=0;
+    Object.entries(grouped).forEach(([no,list])=>{
+      const c=CONTRACTS.find(x=>x.no===Number(no));
+      if(!c) return;
+      list.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+      const lines=list.map(s=>{
+        const parts=[];
+        if(s.date) parts.push(s.date);
+        if(s.person) parts.push(s.person);
+        if(s.content) parts.push(s.content);
+        const head=parts.join(' · ');
+        return s.result ? `${head}\n  → ${s.result}` : head;
+      });
+      const block=lines.join('\n');
+      if(!block) return;
+      const existing=(c.contract_memo||'').trim();
+      c.contract_memo = existing ? existing+'\n\n'+block : block;
+      migratedContracts++;
+      migratedRecords+=list.length;
+    });
+    localStorage.setItem('svc_migrated_v1','1');
+    if(migratedRecords>0){
+      console.log(`📋 방문/A/S 이력 → 거래처 메모 마이그레이션 완료: ${migratedContracts}개 거래처 / ${migratedRecords}건 이력`);
+      if(skippedCustom>0) console.warn(`⚠️ 미연결 거래처(customName) 이력 ${skippedCustom}건은 스킵되었습니다.`);
+      if(typeof autoSave==='function') autoSave();
+    }
+  }catch(e){
+    console.error('마이그레이션 오류:', e);
+  }
 }
 
 // ══ 출력카운터 ══
@@ -3292,6 +3059,21 @@ function hidePayTip(){ payTipEl.style.display = 'none'; }
   </div>
 </div>
 
+<!-- MODAL: 거래처 메모 -->
+<div class="modal-bg" id="contract-memo-modal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-head"><h3 id="cm-title">거래처 메모</h3><button class="modal-close" onclick="closeModal('contract-memo-modal')">×</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>메모 내용</label><textarea class="inp" id="cm-memo" rows="12" placeholder="거래처 관련 메모 (방문·A/S 이력 등)..."></textarea></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger btn-sm" id="cm-del-btn" onclick="saveContractMemo(true)">메모 삭제</button>
+      <button class="btn btn-ghost" onclick="closeModal('contract-memo-modal')">취소</button>
+      <button class="btn btn-primary" onclick="saveContractMemo(false)">저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- 납부 툴팁 -->
 
 <script>
@@ -3348,6 +3130,7 @@ async function startApp(userId){
 
   // 로컬 데이터 우선 로드 (Dropbox 동기화는 DOMContentLoaded에서 이미 처리됨)
   loadFromLocal();
+  migrateServicesToMemo();
   applyFilters(); initRegYearFilter();
   if(ind){ ind.textContent='💾 로컬 저장'; ind.style.color='#86efac';
     setTimeout(()=>{ if(ind) ind.textContent=''; }, 2000); }
