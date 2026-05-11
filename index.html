@@ -1310,24 +1310,49 @@ function missedMonths(c){
   if(!c.payments) return 0;
   const now = new Date();
   const regDate = c.reg_date ? new Date(c.reg_date) : new Date('2020-01-01');
-  let missed = 0;
   // 시작월 산정: (1) 2011년 1월부터 적용, (2) 등록일의 다음 달부터 적용
   // → 두 조건 중 더 늦은 시점을 시작월로 삼는다
   // 등록일 다음 달
-  let y = regDate.getFullYear();
-  let m = regDate.getMonth() + 2; // 등록 다음 달부터
-  if(m > 12){ m = 1; y++; }
+  let startY = regDate.getFullYear();
+  let startM = regDate.getMonth() + 2; // 등록 다음 달부터
+  if(startM > 12){ startM = 1; startY++; }
   // 2011-01보다 이른 경우 2011-01로 끌어올림
-  if(y < 2011 || (y === 2011 && m < 1)){
-    y = 2011; m = 1;
+  if(startY < 2011 || (startY === 2011 && startM < 1)){
+    startY = 2011; startM = 1;
   }
   const endY = now.getFullYear();
   const endM = now.getMonth() + 1;
-  while(y < endY || (y === endY && m <= endM)){
-    const k = `${y}-${String(m).padStart(2,'0')}`;
+
+  // 가장 최근 납부월(YYYY-MM) 찾기 — _memo 키 제외, 값이 있는 키만
+  let lastPaidKey = null;
+  Object.keys(c.payments).forEach(k=>{
+    if(k.endsWith('_memo')) return;
+    if(!/^\d{4}-\d{2}$/.test(k)) return;
     const v = c.payments[k];
-    const paid = v && /^\d{4}/.test(v);
-    if(!paid) missed++;
+    if(!v) return;
+    if(!/^\d{4}/.test(v)) return; // 값이 날짜 형식이어야 납부로 인정
+    if(!lastPaidKey || k > lastPaidKey) lastPaidKey = k;
+  });
+
+  // 카운트 시작월 결정
+  // - 납부 이력 있음: 마지막 납부 다음 달부터
+  // - 납부 이력 없음: 시작월(2011-01 또는 등록 다음 달 중 늦은 쪽)부터
+  let y, m;
+  if(lastPaidKey){
+    y = parseInt(lastPaidKey.slice(0,4), 10);
+    m = parseInt(lastPaidKey.slice(5,7), 10) + 1;
+    if(m > 12){ m = 1; y++; }
+    // 시작월(2011-01 + 등록 다음 달) 보다 이르면 시작월로 끌어올림
+    if(y < startY || (y === startY && m < startM)){
+      y = startY; m = startM;
+    }
+  } else {
+    y = startY; m = startM;
+  }
+
+  let missed = 0;
+  while(y < endY || (y === endY && m <= endM)){
+    missed++;
     m++; if(m > 12){ m = 1; y++; }
   }
   return missed;
