@@ -276,6 +276,16 @@ tbody td{padding:13px 12px;vertical-align:middle}
 }
 #pay-tip{position:fixed;z-index:9999;background:#1e293b;color:#f1f5f9;border-radius:7px;padding:9px 13px;font-size:12px;line-height:1.7;pointer-events:none;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.25);display:none}
 
+/* 렌탈금 드래그 선택 합계 */
+td.rent-cell{user-select:none;-webkit-user-select:none}
+td.rent-selected{background:#dbeafe!important;outline:2px solid #3b82f6;outline-offset:-2px;border-radius:3px}
+#rent-sum-bar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1e293b;color:#f1f5f9;border-radius:10px;padding:10px 22px;font-size:13px;line-height:1.6;box-shadow:0 6px 24px rgba(0,0,0,.3);display:none;z-index:9998;white-space:nowrap;align-items:center;gap:16px}
+#rent-sum-bar .rs-label{color:#94a3b8;font-size:11px;margin-right:4px}
+#rent-sum-bar .rs-val{font-weight:700;font-size:15px;color:#60a5fa}
+#rent-sum-bar .rs-divider{width:1px;height:18px;background:#475569;display:inline-block;vertical-align:middle;margin:0 6px}
+#rent-sum-bar .rs-close{cursor:pointer;margin-left:10px;color:#94a3b8;font-size:16px;padding:2px 6px;border-radius:4px}
+#rent-sum-bar .rs-close:hover{background:#334155;color:#fff}
+
 /* 출력카운터 */
 .counter-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
 .counter-table th{background:#f7f8fa;color:var(--text3);font-weight:600;padding:7px 6px;text-align:center;border:1px solid var(--border);white-space:nowrap}
@@ -455,7 +465,7 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
           <th class="resizable">납부일</th>
           <th class="resizable">렌탈금</th>
           <th class="resizable">전화번호</th>
-          <th class="resizable">이메일</th>
+          <th class="resizable">주소</th>
           <th class="resizable">기기</th>
           <th class="resizable">수량</th>
           <th class="resizable">최근납부일</th>
@@ -1748,9 +1758,9 @@ function renderList(){
       <td style="font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.name)}">${nameBadge}<span onclick="event.stopPropagation();openContractMemo(${c.no})" style="cursor:pointer">${esc(c.name)}${contractMemoIcon}</span></td>
       <td><span class="badge ${cmsBadgeCls}">${c.cms}</span></td>
       <td style="font-size:12px;color:var(--text3)">${esc(c.payment_day||'-')}</td>
-      <td style="${rentColor};cursor:pointer" onclick="event.stopPropagation();openRentMemo(${c.no})">${c.rent.toLocaleString()}원${rentMemoIcon}</td>
+      <td class="rent-cell" data-rent="${c.rent}" data-cno="${c.no}" style="${rentColor};cursor:pointer">${c.rent.toLocaleString()}원${rentMemoIcon}</td>
       <td style="color:#555;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.phone||'-')}</td>
-      <td style="font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.email?`<a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--blue)">${esc(c.email)}</a>`:'-'}</td>
+      <td style="font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.address||'')}">${esc(c.address||'-')}</td>
       <td style="color:${c.etc_color&&c.etc_color!=='black'?ETC_COLOR_MAP[c.etc_color]||c.etc_color:'#888'};font-size:12px;font-weight:600">${esc(c.etc.toUpperCase())}</td>
       <td style="text-align:center;font-size:12px;color:var(--text3)">${c.qty||1}</td>
       <td style="font-size:12px">${lp}</td>
@@ -2309,7 +2319,7 @@ function renderPayment(){
     return `<tr>
       <td style="font-size:11px;color:var(--text3);white-space:nowrap">${regShort}</td>
       <td style="font-weight:600;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis">${esc(c.name)}</td>
-      <td style="font-weight:600;white-space:nowrap;${rentColor}">${c.rent.toLocaleString()}원</td>
+      <td class="rent-cell" data-rent="${c.rent}" style="font-weight:600;white-space:nowrap;${rentColor};cursor:pointer">${c.rent.toLocaleString()}원</td>
       ${cells}
       <td style="text-align:center;cursor:pointer" onclick="openExtraPayAdd(${c.no})">
         ${extraSum>0?`<span class="badge b-teal">${extraSum.toLocaleString()}원</span>`:`<span style="color:#d1d5db;font-size:12px">＋등록</span>`}
@@ -3585,6 +3595,126 @@ async function syncGSheet() {
   }
   setTimeout(()=>{ if(ind) ind.textContent=''; }, 3000);
 }
+
+// ══ 렌탈금 드래그 선택 합계 기능 ══
+(function(){
+  // 합계 바 DOM 생성 (없으면)
+  if(!document.getElementById('rent-sum-bar')){
+    const div=document.createElement('div');
+    div.id='rent-sum-bar';
+    div.innerHTML='<span><span class="rs-label">선택</span><span class="rs-val" id="rs-cnt">0</span><span style="color:#94a3b8">건</span></span>'
+      +'<span class="rs-divider"></span>'
+      +'<span><span class="rs-label">합계</span><span class="rs-val" id="rs-sum">0</span><span style="color:#94a3b8">원</span></span>'
+      +'<span class="rs-divider"></span>'
+      +'<span><span class="rs-label">평균</span><span class="rs-val" id="rs-avg">0</span><span style="color:#94a3b8">원</span></span>'
+      +'<span class="rs-close" id="rs-close" title="닫기">✕</span>';
+    document.body.appendChild(div);
+  }
+  let isDragging=false, startCell=null, selectedCells=[], dragMoved=false;
+  const bar=document.getElementById('rent-sum-bar');
+  const cntEl=document.getElementById('rs-cnt');
+  const sumEl=document.getElementById('rs-sum');
+  const avgEl=document.getElementById('rs-avg');
+  document.getElementById('rs-close').addEventListener('click',clearSelection);
+
+  function isRentCell(el){
+    let td=el.closest?el.closest('td.rent-cell'):null;
+    return td;
+  }
+  function clearSelection(){
+    selectedCells.forEach(td=>td.classList.remove('rent-selected'));
+    selectedCells=[];
+    bar.style.display='none';
+  }
+  function updateBar(){
+    if(!selectedCells.length){bar.style.display='none';return;}
+    let sum=0;
+    selectedCells.forEach(td=>{sum+=Number(td.dataset.rent)||0;});
+    const cnt=selectedCells.length;
+    const avg=Math.round(sum/cnt);
+    cntEl.textContent=cnt.toLocaleString();
+    sumEl.textContent=sum.toLocaleString();
+    avgEl.textContent=avg.toLocaleString();
+    bar.style.display='flex';
+  }
+  function getAllRentCells(container){
+    return Array.from(container.querySelectorAll('td.rent-cell'));
+  }
+  function getContainerTable(td){
+    return td.closest('table');
+  }
+  function selectRange(table,from,to){
+    const all=getAllRentCells(table);
+    const i1=all.indexOf(from), i2=all.indexOf(to);
+    if(i1<0||i2<0) return;
+    const lo=Math.min(i1,i2), hi=Math.max(i1,i2);
+    selectedCells.forEach(td=>td.classList.remove('rent-selected'));
+    selectedCells=all.slice(lo,hi+1);
+    selectedCells.forEach(td=>td.classList.add('rent-selected'));
+    updateBar();
+  }
+
+  document.addEventListener('mousedown',function(e){
+    const td=isRentCell(e.target);
+    if(!td) return;
+    isDragging=true; dragMoved=false; startCell=td;
+    e.preventDefault();
+    e.stopPropagation();
+    clearSelection();
+    td.classList.add('rent-selected');
+    selectedCells=[td];
+    updateBar();
+  },true);
+  document.addEventListener('mousemove',function(e){
+    if(!isDragging||!startCell) return;
+    const el=document.elementFromPoint(e.clientX,e.clientY);
+    if(!el) return;
+    const td=isRentCell(el);
+    if(!td) return;
+    const table=getContainerTable(startCell);
+    if(td.closest('table')!==table) return;
+    if(td!==startCell) dragMoved=true;
+    selectRange(table,startCell,td);
+  });
+  document.addEventListener('mouseup',function(e){
+    if(!isDragging){return;}
+    const wasDrag=dragMoved;
+    const cell=startCell;
+    isDragging=false;
+    startCell=null; dragMoved=false;
+    if(!wasDrag && cell){
+      const no=cell.dataset.cno;
+      if(no){
+        clearSelection();
+        openRentMemo(Number(no));
+      }
+    }
+  });
+  // rent-cell 클릭 시 tr의 onclick(openDetail) 전파 차단
+  document.addEventListener('click',function(e){
+    const td=isRentCell(e.target);
+    if(td){ e.stopPropagation(); return; }
+    if(!e.target.closest('#rent-sum-bar')){
+      if(selectedCells.length) clearSelection();
+    }
+  },true);
+
+  document.addEventListener('click',function(e){
+    if(!e.ctrlKey && !e.metaKey) return;
+    const td=isRentCell(e.target);
+    if(!td) return;
+    e.preventDefault(); e.stopPropagation();
+    const idx=selectedCells.indexOf(td);
+    if(idx>=0){
+      td.classList.remove('rent-selected');
+      selectedCells.splice(idx,1);
+    } else {
+      td.classList.add('rent-selected');
+      selectedCells.push(td);
+    }
+    updateBar();
+  },true);
+})();
 </script>
 </body>
 </html>
