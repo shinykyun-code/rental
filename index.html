@@ -1177,9 +1177,40 @@ function saveToLocal(){
     if(typeof getAccounts === 'function'){
       data.ACCOUNTS = getAccounts();
     }
-    localStorage.setItem(LS_KEY, JSON.stringify(data));
-    console.log('✅ 로컬 저장 완료');
-  }catch(e){ console.error('❌ 로컬 저장 실패:', e); }
+    const payload = JSON.stringify(data);
+    const sizeMB = (payload.length / 1024 / 1024).toFixed(2);
+    try{
+      localStorage.setItem(LS_KEY, payload);
+      console.log('✅ 로컬 저장 완료 (' + sizeMB + ' MB)');
+      return true;
+    }catch(quotaErr){
+      // 용량 초과 → DOC_FILES 제외하고 재시도, DOC_FILES는 별도 키에 시도
+      console.error('❌ localStorage 용량 초과 (' + sizeMB + ' MB), 분리 저장 시도');
+      const dataNoDoc = { ...data, DOC_FILES: [] };
+      try{
+        localStorage.setItem(LS_KEY, JSON.stringify(dataNoDoc));
+      }catch(e2){
+        console.error('❌ 메인 데이터 저장 실패:', e2);
+        alert('⚠️ 저장 실패\n\n브라우저 저장 용량을 초과했습니다.\n계약서류 자료실의 큰 파일을 삭제하거나, Dropbox 연동을 활성화해 주세요.');
+        return false;
+      }
+      // DOC_FILES만 별도 키에 저장 시도
+      try{
+        localStorage.setItem(LS_KEY + '_docs', JSON.stringify(DOC_FILES));
+        console.log('✅ DOC_FILES 분리 저장 성공');
+        return true;
+      }catch(e3){
+        console.error('❌ DOC_FILES 분리 저장도 실패:', e3);
+        alert('⚠️ 계약서류 파일 저장 실패\n\n첨부 파일이 너무 큽니다 (' + sizeMB + ' MB).\n' +
+              '브라우저 저장 한도(약 5-10MB)를 넘어 파일이 보관되지 않습니다.\n\n' +
+              '해결 방법:\n' +
+              '1) 큰 파일은 압축하거나 작은 이미지로 변환\n' +
+              '2) Dropbox 연결 후 동기화\n' +
+              '3) 불필요한 첨부 파일 삭제');
+        return false;
+      }
+    }
+  }catch(e){ console.error('❌ 로컬 저장 실패:', e); return false; }
 }
 
 function loadFromLocal(){
@@ -1195,7 +1226,18 @@ function loadFromLocal(){
     if(d.INVENTORY)  INVENTORY  = d.INVENTORY;
     if(d.SUPPLIES)   SUPPLIES   = d.SUPPLIES;
     if(d.STAFF_LIST) STAFF_LIST = d.STAFF_LIST;
-    if(d.DOC_FILES)  DOC_FILES  = d.DOC_FILES;
+    if(d.DOC_FILES && d.DOC_FILES.length)  DOC_FILES  = d.DOC_FILES;
+    // 분리 저장된 DOC_FILES가 있으면 우선 사용
+    try{
+      const docsRaw = localStorage.getItem(LS_KEY + '_docs');
+      if(docsRaw){
+        const docs = JSON.parse(docsRaw);
+        if(Array.isArray(docs) && docs.length){
+          DOC_FILES = docs;
+          console.log('📎 분리 저장된 DOC_FILES 로드 (' + docs.length + '건)');
+        }
+      }
+    }catch(e){ console.warn('분리 DOC_FILES 로드 실패:', e); }
     if(d.nextNo)        nextNo        = d.nextNo;
     if(d.nextSvcId)     nextSvcId     = d.nextSvcId;
     if(d.nextExtraId)   nextExtraId   = d.nextExtraId;
@@ -2370,15 +2412,41 @@ function openDocUpload(){
 }
 function saveDocFiles(){
   if(!pendingDocFiles.length){alert('파일을 선택하세요.');return;}
+  // 용량 사전 체크 (대략적인 계산)
+  const newSize = pendingDocFiles.reduce((s,f)=>s+(f.data?f.data.length:0),0);
+  const existingSize = DOC_FILES.reduce((s,f)=>s+(f.data?f.data.length:0),0);
+  const totalMB = ((newSize+existingSize)/1024/1024).toFixed(2);
+  if(newSize+existingSize > 8*1024*1024 && !dbxIsConnected()){
+    if(!confirm('⚠️ 첨부 파일 총 용량이 ' + totalMB + 'MB 입니다.\n\n' +
+                'Dropbox 연결 없이 브라우저 저장소(약 5-10MB 한도)만 사용 중입니다.\n' +
+                '저장에 실패할 수 있으니 Dropbox 연결을 권장합니다.\n\n계속 업로드 하시겠습니까?')) return;
+  }
   const no=parseInt(document.getElementById('dm-no').value)||null;
   const cat=document.getElementById('dm-cat').value;
   const desc=document.getElementById('dm-desc').value.trim();
+  const before = DOC_FILES.length;
   pendingDocFiles.forEach(f=>{
     DOC_FILES.push({id:nextDocId++,no,cat,desc,name:f.name,size:f.size,fileType:f.type,data:f.data,date:today()});
   });
   pendingDocFiles=[];
   closeModal('doc-modal');
-  renderDocs(); autoSave(); alert('업로드 완료되었습니다.');
+  renderDocs();
+  // autoSave 대신 즉시 저장하고 결과 확인
+  const ok = saveToLocal();
+  if(ok){
+    // Dropbox에도 즉시 백업
+    if(dbxIsConnected()){
+      dbxUploadCurrentData().then(r=>{
+        if(r) console.log('☁️ Dropbox 백업 완료');
+        else console.warn('⚠️ Dropbox 백업 실패');
+      });
+    }
+    alert('업로드 완료되었습니다.\n(저장 용량: ' + totalMB + 'MB)');
+  } else {
+    // 저장 실패 시 추가된 파일 롤백
+    DOC_FILES.length = before;
+    renderDocs();
+  }
 }
 function renderDocs(){
   const q=document.getElementById('doc-srch').value.toLowerCase();
@@ -3610,7 +3678,7 @@ async function syncGSheet() {
       +'<span class="rs-close" id="rs-close" title="닫기">✕</span>';
     document.body.appendChild(div);
   }
-  let isDragging=false, startCell=null, selectedCells=[], dragMoved=false;
+  let isDragging=false, startCell=null, selectedCells=[], dragMoved=false, suppressNextClick=false;
   const bar=document.getElementById('rent-sum-bar');
   const cntEl=document.getElementById('rs-cnt');
   const sumEl=document.getElementById('rs-sum');
@@ -3657,10 +3725,28 @@ async function syncGSheet() {
   document.addEventListener('mousedown',function(e){
     const td=isRentCell(e.target);
     if(!td) return;
+    // Ctrl/Cmd+클릭: 토글 (드래그 모드 진입하지 않음)
+    if(e.ctrlKey||e.metaKey){
+      e.preventDefault();
+      e.stopPropagation();
+      suppressNextClick=true;
+      const idx=selectedCells.indexOf(td);
+      if(idx>=0){
+        td.classList.remove('rent-selected');
+        selectedCells.splice(idx,1);
+      } else {
+        td.classList.add('rent-selected');
+        selectedCells.push(td);
+      }
+      updateBar();
+      return;
+    }
+    // 일반 드래그/클릭 시작
     isDragging=true; dragMoved=false; startCell=td;
     e.preventDefault();
     e.stopPropagation();
-    clearSelection();
+    // 기존 선택 초기화 후 시작셀 하나만 선택
+    selectedCells.forEach(c=>c.classList.remove('rent-selected'));
     td.classList.add('rent-selected');
     selectedCells=[td];
     updateBar();
@@ -3677,42 +3763,33 @@ async function syncGSheet() {
     selectRange(table,startCell,td);
   });
   document.addEventListener('mouseup',function(e){
-    if(!isDragging){return;}
+    if(!isDragging) return;
     const wasDrag=dragMoved;
     const cell=startCell;
     isDragging=false;
     startCell=null; dragMoved=false;
+    suppressNextClick=true; // mouseup 직후 click 이벤트는 무시
     if(!wasDrag && cell){
+      // 단순 클릭: 메모 열기 + 선택 해제
       const no=cell.dataset.cno;
+      clearSelection();
       if(no){
-        clearSelection();
         openRentMemo(Number(no));
       }
     }
+    // 드래그였으면 선택 유지 (아무것도 하지 않음)
   });
-  // rent-cell 클릭 시 tr의 onclick(openDetail) 전파 차단
+  // 외부 영역 클릭으로 선택 해제: rent-cell도 합계바도 아닌 곳 클릭 시
   document.addEventListener('click',function(e){
-    const td=isRentCell(e.target);
-    if(td){ e.stopPropagation(); return; }
-    if(!e.target.closest('#rent-sum-bar')){
-      if(selectedCells.length) clearSelection();
+    if(suppressNextClick){
+      suppressNextClick=false;
+      // rent-cell 위에서 발생한 click은 tr.onclick으로 전파되지 않도록
+      if(isRentCell(e.target)){ e.stopPropagation(); }
+      return;
     }
-  },true);
-
-  document.addEventListener('click',function(e){
-    if(!e.ctrlKey && !e.metaKey) return;
-    const td=isRentCell(e.target);
-    if(!td) return;
-    e.preventDefault(); e.stopPropagation();
-    const idx=selectedCells.indexOf(td);
-    if(idx>=0){
-      td.classList.remove('rent-selected');
-      selectedCells.splice(idx,1);
-    } else {
-      td.classList.add('rent-selected');
-      selectedCells.push(td);
-    }
-    updateBar();
+    if(isRentCell(e.target)){ e.stopPropagation(); return; }
+    if(e.target.closest('#rent-sum-bar')) return;
+    if(selectedCells.length) clearSelection();
   },true);
 })();
 </script>
