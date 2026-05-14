@@ -276,6 +276,17 @@ tbody td{padding:13px 12px;vertical-align:middle}
 }
 #pay-tip{position:fixed;z-index:9999;background:#1e293b;color:#f1f5f9;border-radius:7px;padding:9px 13px;font-size:12px;line-height:1.7;pointer-events:none;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.25);display:none}
 
+/* 거래처 자동완성 콤보박스 */
+.autocmp-wrap{position:relative}
+.autocmp-dd{display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:6px;max-height:220px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:10001}
+.autocmp-dd.open{display:block}
+.autocmp-item{padding:8px 12px;font-size:13px;cursor:pointer;border-bottom:0.5px solid #f3f4f6;display:flex;align-items:center;gap:8px}
+.autocmp-item:last-child{border-bottom:none}
+.autocmp-item:hover,.autocmp-item.active{background:#dbeafe}
+.autocmp-item .ac-no{color:#9ca3af;font-size:11px;font-family:monospace;min-width:36px}
+.autocmp-item .ac-hl{background:#fef3c7;color:#92400e;font-weight:600;padding:0 2px;border-radius:2px}
+.autocmp-empty{padding:12px;font-size:12px;color:#9ca3af;text-align:center}
+
 /* 렌탈금 드래그 선택 합계 */
 td.rent-cell{user-select:none;-webkit-user-select:none}
 td.rent-selected{background:#dbeafe!important;outline:2px solid #3b82f6;outline-offset:-2px;border-radius:3px}
@@ -722,7 +733,14 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
     <div class="modal-head"><h3 id="em-title">추가사용료 등록</h3><button class="modal-close" onclick="closeModal('extra-modal')">×</button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group"><label class="required">거래처</label><select class="inp" id="em-no"></select></div>
+        <div class="form-group">
+          <label class="required">거래처</label>
+          <div class="autocmp-wrap" style="position:relative">
+            <input class="inp" id="em-search" type="text" placeholder="거래처명 또는 번호 입력..." autocomplete="off">
+            <input type="hidden" id="em-no">
+            <div class="autocmp-dd" id="em-dd"></div>
+          </div>
+        </div>
         <div class="form-group"><label class="required">날짜</label><input class="inp" id="em-date" type="date"></div>
         <div class="form-group"><label class="required">항목명</label><input class="inp" id="em-item" placeholder="예) 토너 교체, 출장비 등"></div>
         <div class="form-group"><label class="required">금액 (원)</label><input class="inp" id="em-amount" type="number" placeholder="예) 30000"></div>
@@ -1293,26 +1311,46 @@ async function handleUploadConflict(){
     '번호를 입력하세요 (1, 2, 3):',
     '3'
   );
-  if(choice === null) return false; // 취소
+  if(choice === null){
+    alert('ℹ️ 선택 취소\n\n저장이 취소되었습니다.\n현재 작업한 내용은 메모리에만 있으며 자동 저장되지 않습니다.\n\n나중에 다시 시도하시거나 💾 백업 버튼으로 파일로 저장해 주세요.');
+    return false;
+  }
   if(choice === '1'){
     // 강제 덮어쓰기 (force=true → overwrite 모드)
-    if(!confirm('정말 Dropbox의 변경사항을 덮어쓰시겠습니까?\nDropbox의 현재 데이터는 영구히 사라질 수 있습니다.')) return false;
+    if(!confirm('[선택 1] 현재 작업 내용으로 덮어쓰기\n\n' +
+                'Dropbox의 변경사항(다른 기기에서 저장한 내용)은 영구히 사라집니다.\n\n' +
+                '정말 진행하시겠습니까?')){
+      alert('ℹ️ 덮어쓰기 취소됨\n\n저장이 취소되었습니다. 다시 선택해 주세요.');
+      return false;
+    }
     console.log('🔨 강제 덮어쓰기 진행');
     const r = await dbxUploadCurrentData({force:true});
-    return r && r.ok;
+    if(r && r.ok){
+      alert('✅ [선택 1] 덮어쓰기 완료\n\n현재 작업 내용으로 Dropbox가 갱신되었습니다.\nDropbox의 이전 변경사항은 사라졌습니다.');
+      return true;
+    }
+    alert('❌ [선택 1] 덮어쓰기 실패\n\n네트워크 오류 또는 권한 문제일 수 있습니다.\nF12 콘솔에서 자세한 오류를 확인해 주세요.');
+    return false;
   }
   if(choice === '2'){
-    if(!confirm('현재 작업한 내용은 사라집니다.\nDropbox 버전으로 교체하시겠습니까?')) return false;
+    if(!confirm('[선택 2] Dropbox 버전으로 교체\n\n' +
+                '현재 작업한 내용은 사라지고 Dropbox의 최신 버전을 가져옵니다.\n\n' +
+                '정말 진행하시겠습니까?')){
+      alert('ℹ️ 교체 취소됨\n\n저장이 취소되었습니다. 다시 선택해 주세요.');
+      return false;
+    }
     console.log('↩️ Dropbox 버전으로 교체');
     if(remote){
       dbxApplyData(remote);
       if(typeof applyFilters === 'function') applyFilters();
       if(typeof renderDocs === 'function') renderDocs();
       _hasUnsavedChanges = false;
-      alert('✅ Dropbox 버전으로 교체 완료');
+      alert('✅ [선택 2] Dropbox 버전으로 교체 완료\n\n' +
+            '현재 작업 내용은 폐기되었고 Dropbox의 최신 버전이 적용되었습니다.\n' +
+            '계약 ' + CONTRACTS.length + '건, 첨부 ' + DOC_FILES.length + '개');
       return true;
     }
-    alert('❌ Dropbox 데이터를 가져오지 못했습니다.');
+    alert('❌ [선택 2] 교체 실패\n\nDropbox 데이터를 가져오지 못했습니다.');
     return false;
   }
   if(choice === '3'){
@@ -1321,23 +1359,30 @@ async function handleUploadConflict(){
     if(typeof exportJSON === 'function'){
       exportJSON();
     } else {
-      alert('백업 기능을 찾지 못했습니다.');
+      alert('❌ [선택 3] 백업 기능을 찾지 못했습니다.');
       return false;
     }
     // 잠시 기다린 후 교체
     setTimeout(()=>{
       if(remote){
+        const prevContracts = CONTRACTS.length;
+        const prevDocs = DOC_FILES.length;
         dbxApplyData(remote);
         if(typeof applyFilters === 'function') applyFilters();
         if(typeof renderDocs === 'function') renderDocs();
         _hasUnsavedChanges = false;
-        alert('✅ 백업 파일 저장됨\n✅ Dropbox 버전으로 교체 완료\n\n' +
-              '나중에 백업 파일에서 필요한 부분을 📂 불러오기로 합쳐 사용하세요.');
+        alert('✅ [선택 3] 백업 + Dropbox 버전으로 교체 완료\n\n' +
+              '① 현재 작업 내용은 .json 백업 파일로 저장되었습니다.\n' +
+              '   (이전: 계약 ' + prevContracts + '건, 첨부 ' + prevDocs + '개)\n\n' +
+              '② Dropbox의 최신 버전이 적용되었습니다.\n' +
+              '   (현재: 계약 ' + CONTRACTS.length + '건, 첨부 ' + DOC_FILES.length + '개)\n\n' +
+              '백업한 .json에서 필요한 부분만 골라 사용하시려면\n' +
+              '📂 불러오기를 활용해 주세요.');
       }
     }, 1000);
     return true;
   }
-  alert('잘못된 선택입니다. 다시 시도해 주세요.');
+  alert('⚠️ 잘못된 선택입니다.\n\n1, 2, 3 중 하나만 입력해 주세요.\n다시 시도하시려면 같은 작업을 한 번 더 진행해 주세요.');
   return false;
 }
 
@@ -2556,6 +2601,128 @@ function deletePayment(){
 }
 
 // ══ 추가사용료 ══
+// 거래처 자동완성 콤보박스
+let _emAutoIdx = -1; // 키보드 활성 항목 인덱스
+let _emCurrentList = []; // 현재 표시 중인 후보 목록
+
+function emSetContract(c){
+  document.getElementById('em-no').value = c.no;
+  document.getElementById('em-search').value = c.no + '. ' + c.name;
+  emCloseDropdown();
+}
+function emClearContract(){
+  document.getElementById('em-no').value = '';
+}
+function emCloseDropdown(){
+  const dd = document.getElementById('em-dd');
+  if(dd){ dd.classList.remove('open'); dd.innerHTML=''; }
+  _emAutoIdx = -1;
+  _emCurrentList = [];
+}
+function emHighlight(text, query){
+  if(!query) return esc(text);
+  const lower = text.toLowerCase();
+  const q = query.toLowerCase();
+  const idx = lower.indexOf(q);
+  if(idx < 0) return esc(text);
+  return esc(text.slice(0, idx)) +
+         '<span class="ac-hl">' + esc(text.slice(idx, idx+query.length)) + '</span>' +
+         esc(text.slice(idx+query.length));
+}
+function emRenderDropdown(query){
+  const dd = document.getElementById('em-dd');
+  if(!dd) return;
+  query = (query||'').trim();
+  // 검색: 이름 또는 번호로 매칭. 빈 query면 전체에서 앞 50개.
+  let list;
+  if(!query){
+    list = CONTRACTS.slice(0, 50);
+  } else {
+    const q = query.toLowerCase();
+    list = CONTRACTS.filter(c =>
+      (c.name && c.name.toLowerCase().includes(q)) ||
+      String(c.no).includes(query)
+    ).slice(0, 50);
+  }
+  _emCurrentList = list;
+  if(!list.length){
+    dd.innerHTML = '<div class="autocmp-empty">검색 결과 없음</div>';
+    dd.classList.add('open');
+    _emAutoIdx = -1;
+    return;
+  }
+  dd.innerHTML = list.map((c, i) =>
+    '<div class="autocmp-item' + (i===_emAutoIdx?' active':'') + '" data-no="' + c.no + '">' +
+      '<span class="ac-no">#' + c.no + '</span>' +
+      '<span>' + emHighlight(c.name, query) + '</span>' +
+    '</div>'
+  ).join('');
+  dd.classList.add('open');
+  // 클릭 바인딩
+  dd.querySelectorAll('.autocmp-item').forEach(el => {
+    el.addEventListener('mousedown', function(ev){
+      ev.preventDefault(); // input의 blur보다 먼저 처리
+      const no = parseInt(this.dataset.no);
+      const c = CONTRACTS.find(x => x.no === no);
+      if(c) emSetContract(c);
+    });
+  });
+}
+function emHandleKeydown(e){
+  const dd = document.getElementById('em-dd');
+  const isOpen = dd && dd.classList.contains('open');
+  if(e.key === 'ArrowDown'){
+    if(!isOpen){ emRenderDropdown(document.getElementById('em-search').value); }
+    if(!_emCurrentList.length) return;
+    e.preventDefault();
+    _emAutoIdx = (_emAutoIdx + 1) % _emCurrentList.length;
+    emUpdateActiveStyle();
+  } else if(e.key === 'ArrowUp'){
+    if(!_emCurrentList.length) return;
+    e.preventDefault();
+    _emAutoIdx = _emAutoIdx <= 0 ? _emCurrentList.length - 1 : _emAutoIdx - 1;
+    emUpdateActiveStyle();
+  } else if(e.key === 'Enter'){
+    if(isOpen && _emAutoIdx >= 0 && _emCurrentList[_emAutoIdx]){
+      e.preventDefault();
+      emSetContract(_emCurrentList[_emAutoIdx]);
+    }
+  } else if(e.key === 'Escape'){
+    emCloseDropdown();
+  }
+}
+function emUpdateActiveStyle(){
+  const dd = document.getElementById('em-dd');
+  if(!dd) return;
+  dd.querySelectorAll('.autocmp-item').forEach((el, i) => {
+    if(i === _emAutoIdx){
+      el.classList.add('active');
+      el.scrollIntoView({block:'nearest'});
+    } else {
+      el.classList.remove('active');
+    }
+  });
+}
+// 자동완성 이벤트 1회 바인딩
+function emBindAutoComplete(){
+  const input = document.getElementById('em-search');
+  if(!input || input.dataset.bound) return;
+  input.dataset.bound = '1';
+  input.addEventListener('input', function(){
+    emClearContract(); // 타이핑 중에는 이전 선택 해제
+    _emAutoIdx = -1;
+    emRenderDropdown(this.value);
+  });
+  input.addEventListener('focus', function(){
+    emRenderDropdown(this.value);
+  });
+  input.addEventListener('blur', function(){
+    // 약간의 지연 (마우스 클릭 처리 후 닫기)
+    setTimeout(emCloseDropdown, 150);
+  });
+  input.addEventListener('keydown', emHandleKeydown);
+}
+
 function openExtraPayAdd(no){
   editingExtraId=null;
   document.getElementById('em-title').textContent='추가사용료 등록';
@@ -2563,9 +2730,15 @@ function openExtraPayAdd(no){
   document.getElementById('em-item').value='';
   document.getElementById('em-amount').value='';
   document.getElementById('em-memo').value='';
-  const sel=document.getElementById('em-no');
-  sel.innerHTML=CONTRACTS.map(c=>`<option value="${c.no}" ${c.no===no?'selected':''}>${c.no}. ${esc(c.name)}</option>`).join('');
-  if(no) sel.value=no;
+  emBindAutoComplete();
+  emCloseDropdown();
+  if(no){
+    const c = CONTRACTS.find(x => x.no === no);
+    if(c) emSetContract(c);
+    else { document.getElementById('em-search').value=''; emClearContract(); }
+  } else {
+    document.getElementById('em-search').value=''; emClearContract();
+  }
   openModal('extra-modal');
 }
 function editExtraPay(id){
@@ -2577,13 +2750,30 @@ function editExtraPay(id){
   document.getElementById('em-item').value=e.item;
   document.getElementById('em-amount').value=e.amount;
   document.getElementById('em-memo').value=e.memo||'';
-  const sel=document.getElementById('em-no');
-  sel.innerHTML=CONTRACTS.map(c=>`<option value="${c.no}" ${c.no===e.no?'selected':''}>${c.no}. ${esc(c.name)}</option>`).join('');
-  sel.value=e.no;
+  emBindAutoComplete();
+  emCloseDropdown();
+  const c = CONTRACTS.find(x => x.no === e.no);
+  if(c) emSetContract(c);
+  else { document.getElementById('em-search').value=''; emClearContract(); }
   openModal('extra-modal');
 }
 function saveExtraPay(){
-  const no=parseInt(document.getElementById('em-no').value);
+  const noVal = document.getElementById('em-no').value;
+  const no = parseInt(noVal);
+  const searchVal = document.getElementById('em-search').value.trim();
+  if(!noVal || !no){
+    alert('거래처를 선택해 주세요.\n\n검색창에 거래처명이나 번호를 입력한 후 목록에서 선택하셔야 합니다.');
+    document.getElementById('em-search').focus();
+    return;
+  }
+  // 거래처가 실제로 존재하는지 검증
+  if(!CONTRACTS.find(c => c.no === no)){
+    alert('존재하지 않는 거래처입니다. 다시 선택해 주세요.');
+    emClearContract();
+    document.getElementById('em-search').value='';
+    document.getElementById('em-search').focus();
+    return;
+  }
   const date=document.getElementById('em-date').value;
   const item=document.getElementById('em-item').value.trim();
   const amount=parseInt(document.getElementById('em-amount').value)||0;
