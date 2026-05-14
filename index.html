@@ -985,8 +985,10 @@ async function dbxGetAccessToken(){
 // 4) Dropbox에서 데이터 다운로드
 async function dbxDownload(){
   const token = await dbxGetAccessToken();
-  if(!token) return null;
+  if(!token){ console.error('❌ Dropbox 토큰 획득 실패'); return null; }
   try{
+    console.log('📥 Dropbox 다운로드 시작...');
+    const t0 = Date.now();
     const res = await fetch('https://content.dropboxapi.com/2/files/download',{
       method:'POST',
       headers:{
@@ -995,20 +997,30 @@ async function dbxDownload(){
       }
     });
     if(res.status === 409){ console.log('Dropbox 파일 없음 (최초)'); return null; }
-    if(!res.ok){ console.error('Dropbox 다운로드 실패', res.status); return null; }
+    if(!res.ok){ console.error('❌ Dropbox 다운로드 실패', res.status); return null; }
     const meta = JSON.parse(res.headers.get('dropbox-api-result'));
     dbxRemoteRev = meta.rev;
     const txt = await res.text();
-    return JSON.parse(txt);
-  }catch(e){ console.error('Dropbox 다운로드 오류:', e); return null; }
+    const elapsed = ((Date.now()-t0)/1000).toFixed(1);
+    const sizeMB = (txt.length/1024/1024).toFixed(2);
+    console.log('✅ Dropbox 다운로드 성공 (' + sizeMB + ' MB, ' + elapsed + 's, rev=' + meta.rev + ')');
+    const d = JSON.parse(txt);
+    console.log('   → CONTRACTS:', Array.isArray(d.CONTRACTS)?d.CONTRACTS.length:typeof d.CONTRACTS,
+                ', DOC_FILES:', Array.isArray(d.DOC_FILES)?d.DOC_FILES.length:typeof d.DOC_FILES);
+    return d;
+  }catch(e){ console.error('❌ Dropbox 다운로드 오류:', e && e.message ? e.message : e); return null; }
 }
 
 // 5) Dropbox에 데이터 업로드
 async function dbxUpload(data){
   const token = await dbxGetAccessToken();
-  if(!token) return false;
+  if(!token){ console.error('❌ Dropbox 토큰 획득 실패'); return false; }
   try{
+    const body = JSON.stringify(data);
+    const sizeMB = (body.length/1024/1024).toFixed(2);
+    console.log('📤 Dropbox 업로드 시작 (' + sizeMB + ' MB, DOC_FILES ' + (data.DOC_FILES?data.DOC_FILES.length:0) + '개)');
     const arg = {path: DBX_FILE, mode:'overwrite', mute:true};
+    const t0 = Date.now();
     const res = await fetch('https://content.dropboxapi.com/2/files/upload',{
       method:'POST',
       headers:{
@@ -1016,17 +1028,22 @@ async function dbxUpload(data){
         'Dropbox-API-Arg': JSON.stringify(arg),
         'Content-Type':'application/octet-stream'
       },
-      body: JSON.stringify(data)
+      body: body
     });
+    const elapsed = ((Date.now()-t0)/1000).toFixed(1);
     if(!res.ok){
       const t = await res.text();
-      console.error('Dropbox 업로드 실패:', res.status, t);
+      console.error('❌ Dropbox 업로드 실패:', res.status, t, '('+elapsed+'s)');
       return false;
     }
     const meta = await res.json();
     dbxRemoteRev = meta.rev;
+    console.log('✅ Dropbox 업로드 성공 (' + sizeMB + ' MB, ' + elapsed + 's, rev=' + meta.rev + ')');
     return true;
-  }catch(e){ console.error('Dropbox 업로드 오류:', e); return false; }
+  }catch(e){
+    console.error('❌ Dropbox 업로드 오류:', e && e.message ? e.message : e);
+    return false;
+  }
 }
 
 // 6) 연결 해제
@@ -1068,8 +1085,19 @@ async function dbxSyncNow(){
 
 // 현재 데이터를 Dropbox에 업로드
 async function dbxUploadCurrentData(){
+  // DOC_FILES가 잘못된 타입이면 빈 배열로 정정 (방어)
+  if(!Array.isArray(DOC_FILES)){
+    console.warn('⚠️ 업로드 직전 DOC_FILES 타입 비정상 (' + typeof DOC_FILES + ') → 빈 배열로 보정');
+    DOC_FILES = [];
+  }
   const data = {
-    CONTRACTS, SERVICES, EXTRA_PAYS, INVENTORY, STAFF_LIST, SUPPLIES, DOC_FILES,
+    CONTRACTS: Array.isArray(CONTRACTS) ? CONTRACTS : [],
+    SERVICES: Array.isArray(SERVICES) ? SERVICES : [],
+    EXTRA_PAYS: Array.isArray(EXTRA_PAYS) ? EXTRA_PAYS : [],
+    INVENTORY: Array.isArray(INVENTORY) ? INVENTORY : [],
+    STAFF_LIST: Array.isArray(STAFF_LIST) ? STAFF_LIST : [],
+    SUPPLIES: Array.isArray(SUPPLIES) ? SUPPLIES : [],
+    DOC_FILES,
     nextNo, nextSvcId, nextExtraId, nextDocId, nextStaffId,
     _savedAt: new Date().toISOString()
   };
@@ -1083,67 +1111,60 @@ function dbxApplyData(d){
   if(!d) return false;
   _suppressAutoSave = true;
   try{
-    if(d.CONTRACTS)  CONTRACTS  = d.CONTRACTS;
-    if(d.SERVICES)   SERVICES   = d.SERVICES;
-    if(d.EXTRA_PAYS) EXTRA_PAYS = d.EXTRA_PAYS;
-    if(d.INVENTORY)  INVENTORY  = d.INVENTORY;
-    if(d.SUPPLIES)   SUPPLIES   = d.SUPPLIES;
-    if(d.STAFF_LIST) STAFF_LIST = d.STAFF_LIST;
-    if(d.DOC_FILES)  DOC_FILES  = d.DOC_FILES;
-    if(d.nextNo)        nextNo        = d.nextNo;
-    if(d.nextSvcId)     nextSvcId     = d.nextSvcId;
-    if(d.nextExtraId)   nextExtraId   = d.nextExtraId;
-    if(d.nextDocId)     nextDocId     = d.nextDocId;
-    if(d.nextStaffId)   nextStaffId   = d.nextStaffId;
+    if(Array.isArray(d.CONTRACTS))   CONTRACTS  = d.CONTRACTS;
+    if(Array.isArray(d.SERVICES))    SERVICES   = d.SERVICES;
+    if(Array.isArray(d.EXTRA_PAYS))  EXTRA_PAYS = d.EXTRA_PAYS;
+    if(Array.isArray(d.INVENTORY))   INVENTORY  = d.INVENTORY;
+    if(Array.isArray(d.SUPPLIES))    SUPPLIES   = d.SUPPLIES;
+    if(Array.isArray(d.STAFF_LIST))  STAFF_LIST = d.STAFF_LIST;
+    // DOC_FILES: 반드시 배열이어야 함 (이전 버전에서 {} 로 저장된 경우 보호)
+    if(Array.isArray(d.DOC_FILES)){
+      DOC_FILES = d.DOC_FILES;
+      console.log('📎 Dropbox에서 DOC_FILES 로드: ' + DOC_FILES.length + '개');
+    } else if(d.DOC_FILES !== undefined){
+      console.warn('⚠️ Dropbox의 DOC_FILES가 배열이 아님 (' + typeof d.DOC_FILES + ') → 빈 배열로 초기화');
+      DOC_FILES = [];
+    }
+    if(typeof d.nextNo      === 'number') nextNo      = d.nextNo;
+    if(typeof d.nextSvcId   === 'number') nextSvcId   = d.nextSvcId;
+    if(typeof d.nextExtraId === 'number') nextExtraId = d.nextExtraId;
+    if(typeof d.nextDocId   === 'number') nextDocId   = d.nextDocId;
+    if(typeof d.nextStaffId === 'number') nextStaffId = d.nextStaffId;
     // [BUGFIX] 로드한 데이터에 nextNo가 없거나 기존 계약과 충돌하면 보정
     {
       const _maxNo = CONTRACTS.reduce((m,c)=>Math.max(m, Number(c.no)||0), 0);
       if(nextNo <= _maxNo) nextNo = _maxNo + 1;
     }
+    // nextDocId도 보정
+    {
+      const _maxDocId = DOC_FILES.reduce((m,x)=>Math.max(m, Number(x.id)||0), 0);
+      if(nextDocId <= _maxDocId) nextDocId = _maxDocId + 1;
+    }
     // 계정 정보 갱신 (autoSave 트리거하지 않음)
-    if(d.ACCOUNTS && typeof d.ACCOUNTS==='object' && Object.keys(d.ACCOUNTS).length){
+    if(d.ACCOUNTS && typeof d.ACCOUNTS==='object' && !Array.isArray(d.ACCOUNTS) && Object.keys(d.ACCOUNTS).length){
       localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(d.ACCOUNTS));
       console.log('🔐 Dropbox에서 계정 정보 동기화:', Object.keys(d.ACCOUNTS));
     }
-    saveToLocal(); // 로컬에도 반영
   } finally {
     _suppressAutoSave = false;
   }
   return true;
 }
 
-// 시작 시 Dropbox와 로컬 비교 후 최신본 사용
+// 시작 시 Dropbox에서 무조건 최신 데이터 받기 (정본 정책)
 async function dbxInitialSync(){
-  if(!dbxIsConnected()) return;
+  if(!dbxIsConnected()) return false;
   console.log('🔄 Dropbox에서 데이터 가져오는 중...');
   const remote = await dbxDownload();
   if(!remote){
-    // Dropbox에 데이터 없음 → 현재 로컬 데이터 업로드
-    console.log('Dropbox에 파일 없음, 로컬 데이터 업로드');
-    await dbxUploadCurrentData();
-    return;
+    // Dropbox에 데이터 없음 → 빈 상태로 시작 (사용자가 첫 데이터 입력 시 업로드됨)
+    console.log('Dropbox에 파일 없음 → 새 데이터로 시작');
+    return true;
   }
-  // 로컬과 비교: _savedAt 시간이 더 늦은 쪽이 최신
-  const localRaw = localStorage.getItem(LS_KEY);
-  let useRemote = true;
-  if(localRaw){
-    try{
-      const local = JSON.parse(localRaw);
-      const lT = local._savedAt ? new Date(local._savedAt).getTime() : 0;
-      const rT = remote._savedAt ? new Date(remote._savedAt).getTime() : 0;
-      if(lT > rT){
-        useRemote = false;
-        console.log('로컬이 더 최신 → 로컬 데이터를 Dropbox에 업로드');
-      }
-    }catch(e){}
-  }
-  if(useRemote){
-    console.log('✅ Dropbox 데이터 적용');
-    dbxApplyData(remote);
-    if(typeof applyFilters === 'function') applyFilters();
-  }else{
-    await dbxUploadCurrentData();
-  }
+  console.log('✅ Dropbox 데이터 적용');
+  dbxApplyData(remote);
+  if(typeof applyFilters === 'function') applyFilters();
+  return true;
 }
 
 // 버튼 표시 업데이트
@@ -1164,56 +1185,75 @@ function dbxUpdateButton(){
 }
 
 // ══ localStorage 자동 저장/복원 ══
+// [정책 변경] 비즈니스 데이터(CONTRACTS/DOC_FILES 등)는 localStorage에 저장하지 않음.
+// Dropbox만 정본으로 사용. localStorage에는 토큰/UI설정/계정/세션만 유지.
 const LS_KEY = 'rental_mgr_data_v6';
 
 function saveToLocal(){
-  try{
-    console.log('📄 로컬 저장소에 데이터 저장 중...');
-    const data = {
-      CONTRACTS, SERVICES, EXTRA_PAYS, INVENTORY, STAFF_LIST, SUPPLIES, DOC_FILES,
-      nextNo, nextSvcId, nextExtraId, nextDocId, nextStaffId,
-      _savedAt: new Date().toISOString()
-    };
-    if(typeof getAccounts === 'function'){
-      data.ACCOUNTS = getAccounts();
-    }
-    const payload = JSON.stringify(data);
-    const sizeMB = (payload.length / 1024 / 1024).toFixed(2);
-    try{
-      localStorage.setItem(LS_KEY, payload);
-      console.log('✅ 로컬 저장 완료 (' + sizeMB + ' MB)');
-      return true;
-    }catch(quotaErr){
-      // 용량 초과 → DOC_FILES 제외하고 재시도, DOC_FILES는 별도 키에 시도
-      console.error('❌ localStorage 용량 초과 (' + sizeMB + ' MB), 분리 저장 시도');
-      const dataNoDoc = { ...data, DOC_FILES: [] };
-      try{
-        localStorage.setItem(LS_KEY, JSON.stringify(dataNoDoc));
-      }catch(e2){
-        console.error('❌ 메인 데이터 저장 실패:', e2);
-        alert('⚠️ 저장 실패\n\n브라우저 저장 용량을 초과했습니다.\n계약서류 자료실의 큰 파일을 삭제하거나, Dropbox 연동을 활성화해 주세요.');
-        return false;
-      }
-      // DOC_FILES만 별도 키에 저장 시도
-      try{
-        localStorage.setItem(LS_KEY + '_docs', JSON.stringify(DOC_FILES));
-        console.log('✅ DOC_FILES 분리 저장 성공');
-        return true;
-      }catch(e3){
-        console.error('❌ DOC_FILES 분리 저장도 실패:', e3);
-        alert('⚠️ 계약서류 파일 저장 실패\n\n첨부 파일이 너무 큽니다 (' + sizeMB + ' MB).\n' +
-              '브라우저 저장 한도(약 5-10MB)를 넘어 파일이 보관되지 않습니다.\n\n' +
-              '해결 방법:\n' +
-              '1) 큰 파일은 압축하거나 작은 이미지로 변환\n' +
-              '2) Dropbox 연결 후 동기화\n' +
-              '3) 불필요한 첨부 파일 삭제');
-        return false;
-      }
-    }
-  }catch(e){ console.error('❌ 로컬 저장 실패:', e); return false; }
+  // no-op: 비즈니스 데이터는 더 이상 localStorage에 저장하지 않음
+  // (Dropbox 정본 정책으로 전환됨)
+  return true;
 }
 
 function loadFromLocal(){
+  // [정책 변경] 비즈니스 데이터는 더 이상 localStorage에서 불러오지 않음
+  // 단, 이전 버전에서 저장된 계정 정보(ACCOUNTS)는 1회성 마이그레이션
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(!raw) return false;
+    const d = JSON.parse(raw);
+    if(d.ACCOUNTS && typeof d.ACCOUNTS==='object' && Object.keys(d.ACCOUNTS).length){
+      saveAccounts(d.ACCOUNTS);
+    }
+    // 비즈니스 데이터는 무시. 메인 LS_KEY는 다음 백업 후에 정리.
+    return false;
+  }catch(e){ return false; }
+}
+
+// 이전 버전 localStorage 잔재 정리 (1회성)
+function clearLegacyLocalData(){
+  try{
+    localStorage.removeItem(LS_KEY);
+    localStorage.removeItem(LS_KEY + '_docs');
+    localStorage.removeItem('gs_last_payload');
+    console.log('🧹 이전 버전 로컬 비즈니스 데이터 정리 완료');
+  }catch(e){}
+}
+
+// 더미 (구버전 호환용) - 사용되는 곳 있으면 fall through
+function _loadFromLocal_legacy(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(!raw) return false;
+    const d = JSON.parse(raw);
+    if(d.CONTRACTS)  CONTRACTS  = d.CONTRACTS;
+    if(d.SERVICES)   SERVICES   = d.SERVICES;
+    if(d.EXTRA_PAYS) EXTRA_PAYS = d.EXTRA_PAYS;
+    if(d.INVENTORY)  INVENTORY  = d.INVENTORY;
+    if(d.SUPPLIES)   SUPPLIES   = d.SUPPLIES;
+    if(d.STAFF_LIST) STAFF_LIST = d.STAFF_LIST;
+    if(d.DOC_FILES && d.DOC_FILES.length)  DOC_FILES  = d.DOC_FILES;
+    try{
+      const docsRaw = localStorage.getItem(LS_KEY + '_docs');
+      if(docsRaw){
+        const docs = JSON.parse(docsRaw);
+        if(Array.isArray(docs) && docs.length){ DOC_FILES = docs; }
+      }
+    }catch(e){}
+    if(d.nextNo)        nextNo        = d.nextNo;
+    if(d.nextSvcId)     nextSvcId     = d.nextSvcId;
+    if(d.nextExtraId)   nextExtraId   = d.nextExtraId;
+    if(d.nextDocId)     nextDocId     = d.nextDocId;
+    if(d.nextStaffId)   nextStaffId   = d.nextStaffId;
+    {
+      const _maxNo = CONTRACTS.reduce((m,c)=>Math.max(m, Number(c.no)||0), 0);
+      if(nextNo <= _maxNo) nextNo = _maxNo + 1;
+    }
+    return true;
+  }catch(e){ return false; }
+}
+
+function _loadFromLocal_unused(){
   try{
     console.log('📄 로컬 저장소에서 데이터 로드 중...');
     const raw = localStorage.getItem(LS_KEY);
@@ -1258,50 +1298,53 @@ function loadFromLocal(){
 
 let _saveTimer = null;
 let _lastSyncTime = 0;
+let _offlineMode = false; // 오프라인 모드 (Dropbox 연결 실패 / 백업 파일로 작업 중)
+let _hasUnsavedChanges = false; // 미저장 변경 있는지
+
 function autoSave(){
   if(_suppressAutoSave) return; // Dropbox 동기화 중에는 autoSave 무시
+  _hasUnsavedChanges = true;
   clearTimeout(_saveTimer);
   const ind = document.getElementById('save-indicator');
-  if(ind){ ind.textContent='💾 저장 중...'; ind.style.color='#fbbf24'; }
-  console.log('🔄 자동 저장 시작...');
-  
+  if(_offlineMode){
+    if(ind){ ind.textContent='⚠️ 오프라인 - 미저장'; ind.style.color='#fbbf24'; }
+    return; // 오프라인 모드에서는 자동 저장 안 함 (사용자가 💾 백업으로 보존)
+  }
+  if(!dbxIsConnected()){
+    if(ind){ ind.textContent='⚠️ Dropbox 미연결 - 미저장'; ind.style.color='#f87171'; }
+    return;
+  }
+  if(ind){ ind.textContent='☁️ 저장 대기 중...'; ind.style.color='#fbbf24'; }
+  console.log('🔄 자동 저장 예약...');
+
   _saveTimer = setTimeout(async ()=>{
-    try {
-      saveToLocal();
-      console.log('✅ 로컬 저장 완료');
-      _lastSyncTime = Date.now();
-    } catch(e) {
-      console.error('❌ localStorage 저장 실패:', e);
+    if(ind){ ind.textContent='☁️ Dropbox 저장 중...'; ind.style.color='#fbbf24'; }
+    const ok = await dbxUploadCurrentData();
+    _lastSyncTime = Date.now();
+    if(ok) _hasUnsavedChanges = false;
+    if(ind){
+      ind.textContent = ok ? '☁️ Dropbox 저장 완료' : '⚠️ Dropbox 저장 실패';
+      ind.style.color = ok ? '#86efac' : '#fca5a5';
+      setTimeout(()=>{ ind.textContent=''; }, 2500);
     }
-    if(ind){ 
-      ind.textContent='💾 로컬 저장 완료'; ind.style.color='#86efac';
-      setTimeout(()=>{ ind.textContent=''; }, 2000); 
-    }
-    // Dropbox 자동 동기화 (3초 디바운싱)
-    if(dbxIsConnected()){
-      clearTimeout(dbxSyncTimer);
-      dbxSyncTimer = setTimeout(async ()=>{
-        if(ind){ ind.textContent='☁️ Dropbox 동기화 중...'; ind.style.color='#fbbf24'; }
-        const ok = await dbxUploadCurrentData();
-        if(ind){
-          ind.textContent = ok ? '☁️ Dropbox 저장 완료' : '⚠️ Dropbox 저장 실패';
-          ind.style.color = ok ? '#86efac' : '#fca5a5';
-          setTimeout(()=>{ ind.textContent=''; }, 2500);
-        }
-      }, 3000);
-    }
-  }, 1000);
+  }, 1500);
 }
 
 function exportJSON(){
-  const payload = { CONTRACTS, SERVICES, EXTRA_PAYS, INVENTORY, STAFF_LIST,
+  const docCount = DOC_FILES.length;
+  const payload = { CONTRACTS, SERVICES, EXTRA_PAYS, INVENTORY, STAFF_LIST, SUPPLIES, DOC_FILES,
     nextNo, nextSvcId, nextExtraId, nextDocId, nextStaffId,
     exportDate: new Date().toISOString() };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const json = JSON.stringify(payload, null, 2);
+  const sizeMB = (json.length/1024/1024).toFixed(2);
+  const blob = new Blob([json], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = '임대관리_백업_' + new Date().toISOString().slice(0,10) + '.json';
   a.click();
+  setTimeout(()=>{
+    alert('✅ 백업 완료\n\n계약 ' + CONTRACTS.length + '건, 계약서류 ' + docCount + '개 포함\n파일 크기: ' + sizeMB + ' MB');
+  }, 200);
 }
 
 function importJSON(){
@@ -1314,21 +1357,36 @@ function importJSON(){
       try{
         const d = JSON.parse(ev.target.result);
         if(!d.CONTRACTS){ alert('올바른 백업 파일이 아닙니다.'); return; }
-        if(!confirm('백업 파일을 불러오면 현재 데이터가 교체됩니다. 계속하시겠습니까?')) return;
+        const onlineNote = (dbxIsConnected() && !_offlineMode)
+          ? '\n\n⚠️ Dropbox에 연결된 상태입니다.\n불러오기 후 자동 저장되며 클라우드의 기존 데이터가 덮어씌워집니다.'
+          : '\n\n현재 오프라인/미연결 상태입니다.\n작업 후 💾 백업 버튼으로 다시 저장하세요.';
+        if(!confirm('백업 파일을 불러오면 현재 데이터가 교체됩니다.' + onlineNote + '\n\n계속하시겠습니까?')) return;
         if(d.CONTRACTS)  CONTRACTS  = d.CONTRACTS;
         if(d.SERVICES)   SERVICES   = d.SERVICES;
         if(d.EXTRA_PAYS) EXTRA_PAYS = d.EXTRA_PAYS;
         if(d.INVENTORY)  INVENTORY  = d.INVENTORY;
         if(d.STAFF_LIST) STAFF_LIST = d.STAFF_LIST;
         if(d.SUPPLIES)   SUPPLIES   = d.SUPPLIES;
-        if(d.DOC_FILES)  DOC_FILES  = d.DOC_FILES;
+        if(d.DOC_FILES)  DOC_FILES  = d.DOC_FILES; else DOC_FILES = [];
         if(d.nextNo)      nextNo      = d.nextNo;
         if(d.nextSvcId)   nextSvcId   = d.nextSvcId;
         if(d.nextExtraId) nextExtraId = d.nextExtraId;
         if(d.nextDocId)   nextDocId   = d.nextDocId;
         if(d.nextStaffId) nextStaffId = d.nextStaffId;
-        saveToLocal(); applyFilters();
-        alert('✅ 불러오기 완료! 계약 ' + CONTRACTS.length + '건');
+        // nextNo 보정
+        {
+          const _maxNo = CONTRACTS.reduce((m,c)=>Math.max(m, Number(c.no)||0), 0);
+          if(nextNo <= _maxNo) nextNo = _maxNo + 1;
+        }
+        applyFilters();
+        if(typeof renderDocs === 'function') renderDocs();
+        // 온라인이고 Dropbox 연결되어 있으면 즉시 동기화
+        if(dbxIsConnected() && !_offlineMode){
+          autoSave();
+        } else {
+          _hasUnsavedChanges = true;
+        }
+        alert('✅ 불러오기 완료!\n계약 ' + CONTRACTS.length + '건, 계약서류 ' + DOC_FILES.length + '개');
       }catch(err){ alert('파일 오류: JSON 백업 파일(.json)을 선택해주세요.\n(HTML 파일이나 다른 파일은 불러올 수 없습니다)\n\n오류: '+err.message); }
     };
     reader.readAsText(file,'utf-8');
@@ -2410,42 +2468,66 @@ function openDocUpload(){
   sel.innerHTML='<option value="">-- 전체 공용 --</option>'+CONTRACTS.map(c=>`<option value="${c.no}">${c.no}. ${esc(c.name)}</option>`).join('');
   openModal('doc-modal');
 }
-function saveDocFiles(){
+async function saveDocFiles(){
   if(!pendingDocFiles.length){alert('파일을 선택하세요.');return;}
-  // 용량 사전 체크 (대략적인 계산)
+  // 용량 정보
   const newSize = pendingDocFiles.reduce((s,f)=>s+(f.data?f.data.length:0),0);
   const existingSize = DOC_FILES.reduce((s,f)=>s+(f.data?f.data.length:0),0);
   const totalMB = ((newSize+existingSize)/1024/1024).toFixed(2);
-  if(newSize+existingSize > 8*1024*1024 && !dbxIsConnected()){
-    if(!confirm('⚠️ 첨부 파일 총 용량이 ' + totalMB + 'MB 입니다.\n\n' +
-                'Dropbox 연결 없이 브라우저 저장소(약 5-10MB 한도)만 사용 중입니다.\n' +
-                '저장에 실패할 수 있으니 Dropbox 연결을 권장합니다.\n\n계속 업로드 하시겠습니까?')) return;
+  // 미연결/오프라인 경고
+  if(_offlineMode || !dbxIsConnected()){
+    if(!confirm('⚠️ 현재 Dropbox에 연결되어 있지 않거나 오프라인 상태입니다.\n\n' +
+                '추가하신 파일은 이번 세션에만 유지되고, 새로고침하면 사라집니다.\n' +
+                '💾 백업 버튼으로 .json 파일을 저장해 주세요.\n\n계속하시겠습니까?')) return;
   }
   const no=parseInt(document.getElementById('dm-no').value)||null;
   const cat=document.getElementById('dm-cat').value;
   const desc=document.getElementById('dm-desc').value.trim();
   const before = DOC_FILES.length;
+  const addedCount = pendingDocFiles.length;
   pendingDocFiles.forEach(f=>{
     DOC_FILES.push({id:nextDocId++,no,cat,desc,name:f.name,size:f.size,fileType:f.type,data:f.data,date:today()});
   });
   pendingDocFiles=[];
   closeModal('doc-modal');
   renderDocs();
-  // autoSave 대신 즉시 저장하고 결과 확인
-  const ok = saveToLocal();
-  if(ok){
-    // Dropbox에도 즉시 백업
-    if(dbxIsConnected()){
-      dbxUploadCurrentData().then(r=>{
-        if(r) console.log('☁️ Dropbox 백업 완료');
-        else console.warn('⚠️ Dropbox 백업 실패');
-      });
+
+  // Dropbox에 연결되어 있으면 즉시 동기 업로드 (디바운싱 우회 — 큰 데이터라 새로고침 전에 끝내야 함)
+  if(dbxIsConnected() && !_offlineMode){
+    const ind = document.getElementById('save-indicator');
+    if(ind){ ind.textContent='☁️ Dropbox 저장 중... (' + totalMB + 'MB)'; ind.style.color='#fbbf24'; }
+    clearTimeout(_saveTimer); // autoSave 예약 취소 (직접 처리)
+    const ok = await dbxUploadCurrentData();
+    if(ok){
+      _hasUnsavedChanges = false;
+      _lastSyncTime = Date.now();
+      if(ind){
+        ind.textContent='☁️ Dropbox 저장 완료';
+        ind.style.color='#86efac';
+        setTimeout(()=>{ ind.textContent=''; }, 2500);
+      }
+      alert('✅ 업로드 완료\n계약서류 자료실 + Dropbox 저장 완료\n총 ' + totalMB + 'MB');
+    } else {
+      // 업로드 실패: 추가한 파일 롤백 (디스크 상태와 메모리 일치 유지)
+      DOC_FILES.length = before;
+      nextDocId -= addedCount;
+      renderDocs();
+      if(ind){
+        ind.textContent='❌ Dropbox 저장 실패';
+        ind.style.color='#fca5a5';
+      }
+      alert('❌ Dropbox 저장 실패\n\n첨부 파일이 Dropbox에 저장되지 않았습니다.\n' +
+            '추가했던 파일은 롤백되었습니다.\n\n' +
+            '브라우저 개발자도구(F12) → 콘솔 탭에서 자세한 오류 메시지를 확인해 주세요.\n\n' +
+            '가능한 원인:\n' +
+            '• 파일 용량 과다 (현재 합계 ' + totalMB + 'MB)\n' +
+            '• 네트워크 일시 중단\n' +
+            '• Dropbox 토큰 만료 → 📦 Dropbox 버튼으로 재연결');
     }
-    alert('업로드 완료되었습니다.\n(저장 용량: ' + totalMB + 'MB)');
   } else {
-    // 저장 실패 시 추가된 파일 롤백
-    DOC_FILES.length = before;
-    renderDocs();
+    // 오프라인/미연결: 메모리에만 추가, 사용자가 💾 백업해야 함
+    _hasUnsavedChanges = true;
+    alert('업로드 완료 (메모리)\n\n⚠️ Dropbox 미연결 상태입니다.\n💾 백업 버튼으로 .json 파일을 저장하지 않으면 새로고침 시 사라집니다.\n\n총 ' + totalMB + 'MB');
   }
 }
 function renderDocs(){
@@ -3265,20 +3347,36 @@ async function startApp(userId){
   if(userId==='admin') applyAdminMode();
 
   const ind = document.getElementById('save-indicator');
-  console.log('🚀 앱 시작 - 데이터 로드 중...');
+  console.log('🚀 앱 시작 - 데이터 로드 완료 (Dropbox 정본)');
 
-  // 로컬 데이터 우선 로드 (Dropbox 동기화는 DOMContentLoaded에서 이미 처리됨)
-  loadFromLocal();
+  // 데이터는 이미 DOMContentLoaded에서 Dropbox에서 받아둠
   migrateServicesToMemo();
   applyFilters(); initRegYearFilter();
-  if(ind){ ind.textContent='💾 로컬 저장'; ind.style.color='#86efac';
-    setTimeout(()=>{ if(ind) ind.textContent=''; }, 2000); }
+  if(ind){
+    if(_offlineMode){
+      ind.textContent = '⚠️ 오프라인';
+      ind.style.color = '#fca5a5';
+    } else {
+      ind.textContent='☁️ 동기화됨';
+      ind.style.color='#86efac';
+      setTimeout(()=>{ if(ind) ind.textContent=''; }, 2000);
+    }
+  }
 }
 
 function showApp(userId){
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('main-app').style.display='block';
   startApp(userId);
+  // 오프라인/미연결 시 안내 (한 번만)
+  setTimeout(()=>{
+    if(_offlineMode){
+      const msg = dbxIsConnected()
+        ? '⚠️ Dropbox 연결은 되어있으나 데이터를 가져오지 못했습니다.\n\n오프라인 모드로 진입합니다.\n📂 불러오기 버튼으로 백업 .json 파일을 여시면 작업할 수 있습니다.\n\n작업 후에는 반드시 💾 백업으로 파일을 저장하세요.\n(이번 세션의 변경사항은 자동 저장되지 않습니다)'
+        : '💡 Dropbox에 연결되어 있지 않습니다.\n\n현재 상태에서는 데이터가 자동 저장되지 않습니다.\n\n옵션 1) 오른쪽 위 📦 Dropbox 버튼으로 연결 (권장)\n옵션 2) 📂 백업 파일을 불러와서 작업 후 💾 백업으로 다시 저장';
+      alert(msg);
+    }
+  }, 500);
 }
 
 function doLogin(){
@@ -3385,17 +3483,20 @@ async function loadExternalData(){
 
 window.addEventListener('DOMContentLoaded', async function(){
   console.log('🚀 앱 시작');
-  
+
   // ══ 0. 외부 JSON 데이터 로드 (가장 먼저 실행) ══
   try{
     await loadExternalData();
   }catch(e){
     return; // 데이터 로드 실패 시 앱 시작 중단
   }
-  
+
+  // 0-2. 이전 버전 호환: 계정 정보만 localStorage에서 마이그레이션
+  try{ loadFromLocal(); }catch(e){}
+
   const loginBtn = document.getElementById('login-btn');
   const loginStatus = document.getElementById('login-dbx-status');
-  
+
   // 1. Dropbox OAuth 리다이렉트 처리 (URL에 ?code= 가 있을 경우)
   if(location.search.includes('code=')){
     if(loginStatus){
@@ -3406,12 +3507,13 @@ window.addEventListener('DOMContentLoaded', async function(){
     }
     await dbxHandleRedirect();
   }
-  
+
   // 2. Dropbox 연결 상태 표시
   dbxUpdateButton();
-  
-  // 3. Dropbox 연결되어 있으면 시작 시 동기화 (계정정보 + 데이터)
+
+  // 3. Dropbox 연결 상태에 따라 분기
   if(dbxIsConnected()){
+    // ── 온라인 흐름: Dropbox에서 정본 다운로드 ──
     if(loginBtn){ loginBtn.disabled=true; loginBtn.textContent='⏳ 동기화 중...'; loginBtn.style.opacity='0.6'; }
     if(loginStatus){
       loginStatus.style.display='block';
@@ -3421,27 +3523,53 @@ window.addEventListener('DOMContentLoaded', async function(){
     }
     const ind = document.getElementById('save-indicator');
     if(ind){ ind.textContent='☁️ Dropbox 동기화 중...'; ind.style.color='#fbbf24'; }
+    let synced = false;
     try{
-      await dbxInitialSync();
+      synced = await dbxInitialSync();
       if(ind){ ind.textContent='☁️ 동기화 완료'; ind.style.color='#86efac'; setTimeout(()=>{ ind.textContent=''; }, 2000); }
       if(loginStatus){
         loginStatus.style.background='#dcfce7';
         loginStatus.style.color='#166534';
-        loginStatus.textContent='✅ Dropbox 동기화 완료 - 최신 계정으로 로그인하세요';
+        loginStatus.textContent='✅ Dropbox 동기화 완료 - 로그인하세요';
         setTimeout(()=>{ if(loginStatus) loginStatus.style.display='none'; }, 3000);
       }
     }catch(e){
       console.error('Dropbox 초기 동기화 실패:', e);
-      if(ind){ ind.textContent='⚠️ Dropbox 오류'; ind.style.color='#fca5a5'; setTimeout(()=>{ ind.textContent=''; }, 2500); }
+      synced = false;
+    }
+    if(!synced){
+      // Dropbox 연결은 되어있지만 다운로드 실패 → 오프라인 모드 안내
+      _offlineMode = true;
+      if(ind){ ind.textContent='⚠️ 오프라인 모드'; ind.style.color='#fca5a5'; }
       if(loginStatus){
-        loginStatus.style.background='#fee2e2';
-        loginStatus.style.color='#991b1b';
-        loginStatus.textContent='⚠️ Dropbox 동기화 실패 - 로컬 데이터로 로그인합니다';
+        loginStatus.style.background='#fef3c7';
+        loginStatus.style.color='#92400e';
+        loginStatus.innerHTML='⚠️ Dropbox에 연결할 수 없습니다.<br>로그인 후 📂 불러오기로 백업 파일을 여시면 작업할 수 있습니다.<br><span style="font-size:11px">(이 세션의 변경사항은 Dropbox에 자동 저장되지 않습니다)</span>';
       }
     }
     if(loginBtn){ loginBtn.disabled=false; loginBtn.textContent='로그인'; loginBtn.style.opacity='1'; }
+    // 이전 버전의 잔재(비즈니스 데이터 in localStorage) 정리
+    if(synced) clearLegacyLocalData();
+  } else {
+    // ── Dropbox 미연결 상태 ──
+    _offlineMode = true;
+    if(loginStatus){
+      loginStatus.style.display='block';
+      loginStatus.style.background='#fef3c7';
+      loginStatus.style.color='#92400e';
+      loginStatus.innerHTML='💡 <b>Dropbox 연결을 권장합니다</b><br>오른쪽 위 📦 Dropbox 버튼으로 연결하시면 자동 동기화됩니다.<br><span style="font-size:11px">미연결 상태에서는 📂 백업 파일 불러오기로만 작업할 수 있습니다.</span>';
+    }
   }
-  
+
+  // 4. 페이지 이탈 시 미저장 경고
+  window.addEventListener('beforeunload', function(e){
+    if(_hasUnsavedChanges && _offlineMode){
+      e.preventDefault();
+      e.returnValue = '저장되지 않은 변경사항이 있습니다. 💾 백업 버튼으로 저장하지 않으면 사라집니다.';
+      return e.returnValue;
+    }
+  });
+
   const loggedIn = checkSession();
   if(loggedIn){
     showApp(loggedIn);
@@ -3638,6 +3766,10 @@ async function saveToGSheet() {
 }
 
 async function syncGSheet() {
+  alert('ℹ️ 구글 시트 연동은 더 이상 사용되지 않습니다.\n\n현재는 Dropbox만을 정본 저장소로 사용합니다.\n오른쪽 위 📦 Dropbox 버튼으로 연결해 주세요.');
+  return;
+}
+async function _syncGSheet_legacy() {
   if(!confirm('현재 로컬 데이터를 구글 시트로 업로드하시겠습니까?\n(클라우드의 이전 데이터가 덮어씌워집니다.)')) return;
 
   const ind = document.getElementById('save-indicator');
