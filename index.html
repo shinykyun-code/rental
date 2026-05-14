@@ -879,6 +879,7 @@ let SUPPLIES = [];
 const DBX_APP_KEY    = 'yw32ev5w3s6obuj';
 const DBX_REDIRECT   = 'https://shinykyun-code.github.io/rental/';
 const DBX_FILE       = '/rental_data.json';
+const DBX_FILES_DIR  = '/files'; // 첨부 파일 개별 저장 폴더
 const DBX_TOKEN_KEY  = 'dbx_refresh_token';
 const DBX_VERIFIER_KEY = 'dbx_pkce_verifier';
 
@@ -1046,6 +1047,124 @@ async function dbxUpload(data){
   }
 }
 
+// ══ 첨부 파일 개별 저장/조회/삭제 (Dropbox 파일별 분리 저장) ══
+function dbxFilePath(docId){
+  return DBX_FILES_DIR + '/doc_' + docId;
+}
+
+// base64 data URL을 바이너리 ArrayBuffer로 변환
+function base64DataUrlToArrayBuffer(dataUrl){
+  // dataUrl: "data:application/pdf;base64,JVBERi0xLjQK..."
+  const commaIdx = dataUrl.indexOf(',');
+  const b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+  const bin = atob(b64);
+  const len = bin.length;
+  const buf = new Uint8Array(len);
+  for(let i=0; i<len; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+
+// ArrayBuffer를 base64 data URL로 변환
+function arrayBufferToBase64DataUrl(buf, mimeType){
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const chunk = 0x8000; // 32KB 단위로 처리 (call stack 한도 회피)
+  for(let i=0; i<bytes.length; i+=chunk){
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i+chunk));
+  }
+  return 'data:' + (mimeType || 'application/octet-stream') + ';base64,' + btoa(binary);
+}
+
+// 첨부 파일 업로드 (개별)
+async function dbxUploadFile(docId, dataUrl, mimeType){
+  const token = await dbxGetAccessToken();
+  if(!token){ console.error('❌ 첨부 업로드: 토큰 없음'); return false; }
+  try{
+    const buf = base64DataUrlToArrayBuffer(dataUrl);
+    const sizeKB = (buf.byteLength/1024).toFixed(0);
+    const path = dbxFilePath(docId);
+    console.log('📤 첨부 업로드: ' + path + ' (' + sizeKB + ' KB)');
+    const arg = {path: path, mode:'overwrite', mute:true};
+    const res = await fetch('https://content.dropboxapi.com/2/files/upload',{
+      method:'POST',
+      headers:{
+        'Authorization':'Bearer '+token,
+        'Dropbox-API-Arg': JSON.stringify(arg),
+        'Content-Type':'application/octet-stream'
+      },
+      body: buf
+    });
+    if(!res.ok){
+      const t = await res.text();
+      console.error('❌ 첨부 업로드 실패:', res.status, t);
+      return false;
+    }
+    console.log('✅ 첨부 업로드 성공: doc_' + docId);
+    return true;
+  }catch(e){
+    console.error('❌ 첨부 업로드 오류:', e && e.message ? e.message : e);
+    return false;
+  }
+}
+
+// 첨부 파일 다운로드 (개별, base64 data URL로 반환)
+async function dbxDownloadFile(docId, mimeType){
+  const token = await dbxGetAccessToken();
+  if(!token) return null;
+  try{
+    const path = dbxFilePath(docId);
+    console.log('📥 첨부 다운로드: ' + path);
+    const res = await fetch('https://content.dropboxapi.com/2/files/download',{
+      method:'POST',
+      headers:{
+        'Authorization':'Bearer '+token,
+        'Dropbox-API-Arg': JSON.stringify({path: path})
+      }
+    });
+    if(res.status === 409){ console.warn('첨부 없음:', path); return null; }
+    if(!res.ok){ console.error('❌ 첨부 다운로드 실패:', res.status); return null; }
+    const buf = await res.arrayBuffer();
+    const dataUrl = arrayBufferToBase64DataUrl(buf, mimeType);
+    console.log('✅ 첨부 다운로드 성공: doc_' + docId + ' (' + (buf.byteLength/1024).toFixed(0) + ' KB)');
+    return dataUrl;
+  }catch(e){
+    console.error('❌ 첨부 다운로드 오류:', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
+// 첨부 파일 삭제 (개별)
+async function dbxDeleteFile(docId){
+  const token = await dbxGetAccessToken();
+  if(!token) return false;
+  try{
+    const path = dbxFilePath(docId);
+    console.log('🗑️ 첨부 삭제: ' + path);
+    const res = await fetch('https://api.dropboxapi.com/2/files/delete_v2',{
+      method:'POST',
+      headers:{
+        'Authorization':'Bearer '+token,
+        'Content-Type':'application/json'
+      },
+      body: JSON.stringify({path: path})
+    });
+    if(!res.ok){
+      const t = await res.text();
+      if(res.status === 409 && t.includes('not_found')){
+        console.log('이미 없는 파일:', path);
+        return true; // 이미 없으면 성공으로 간주
+      }
+      console.error('❌ 첨부 삭제 실패:', res.status, t);
+      return false;
+    }
+    console.log('✅ 첨부 삭제 성공: doc_' + docId);
+    return true;
+  }catch(e){
+    console.error('❌ 첨부 삭제 오류:', e && e.message ? e.message : e);
+    return false;
+  }
+}
+
 // 6) 연결 해제
 function dbxDisconnect(){
   if(!confirm('Dropbox 연결을 해제하시겠습니까?\n\n(데이터는 Dropbox와 로컬에 그대로 유지됩니다)')) return;
@@ -1083,13 +1202,18 @@ async function dbxSyncNow(){
   }
 }
 
-// 현재 데이터를 Dropbox에 업로드
+// 현재 데이터를 Dropbox에 업로드 (DOC_FILES의 base64 data는 메인 JSON에서 제외)
 async function dbxUploadCurrentData(){
   // DOC_FILES가 잘못된 타입이면 빈 배열로 정정 (방어)
   if(!Array.isArray(DOC_FILES)){
     console.warn('⚠️ 업로드 직전 DOC_FILES 타입 비정상 (' + typeof DOC_FILES + ') → 빈 배열로 보정');
     DOC_FILES = [];
   }
+  // DOC_FILES 메타데이터만 추출 (data 필드 제외 — 분리 저장)
+  const docMeta = DOC_FILES.map(d => {
+    const m = { id:d.id, no:d.no, cat:d.cat, desc:d.desc, name:d.name, size:d.size, fileType:d.fileType, date:d.date };
+    return m;
+  });
   const data = {
     CONTRACTS: Array.isArray(CONTRACTS) ? CONTRACTS : [],
     SERVICES: Array.isArray(SERVICES) ? SERVICES : [],
@@ -1097,8 +1221,9 @@ async function dbxUploadCurrentData(){
     INVENTORY: Array.isArray(INVENTORY) ? INVENTORY : [],
     STAFF_LIST: Array.isArray(STAFF_LIST) ? STAFF_LIST : [],
     SUPPLIES: Array.isArray(SUPPLIES) ? SUPPLIES : [],
-    DOC_FILES,
+    DOC_FILES: docMeta, // 메타데이터만
     nextNo, nextSvcId, nextExtraId, nextDocId, nextStaffId,
+    _schemaVersion: 2, // 분리 저장 구조
     _savedAt: new Date().toISOString()
   };
   if(typeof getAccounts === 'function') data.ACCOUNTS = getAccounts();
@@ -1157,14 +1282,64 @@ async function dbxInitialSync(){
   console.log('🔄 Dropbox에서 데이터 가져오는 중...');
   const remote = await dbxDownload();
   if(!remote){
-    // Dropbox에 데이터 없음 → 빈 상태로 시작 (사용자가 첫 데이터 입력 시 업로드됨)
     console.log('Dropbox에 파일 없음 → 새 데이터로 시작');
     return true;
   }
   console.log('✅ Dropbox 데이터 적용');
   dbxApplyData(remote);
+  // 이전 구조(base64 data 필드가 메인 JSON에 포함)면 자동 마이그레이션
+  await migrateDocFilesToSeparate(remote);
   if(typeof applyFilters === 'function') applyFilters();
   return true;
+}
+
+// ══ DOC_FILES 분리 저장 마이그레이션 (1회성) ══
+async function migrateDocFilesToSeparate(remoteData){
+  if(!remoteData || !Array.isArray(remoteData.DOC_FILES)) return;
+  // 메인 JSON 안에 base64 data가 포함된 DOC_FILES만 추출
+  const filesWithData = remoteData.DOC_FILES.filter(d => d && d.data && typeof d.data === 'string' && d.data.length > 0);
+  if(!filesWithData.length){
+    console.log('📦 마이그레이션 불필요 (분리 저장 구조 또는 빈 상태)');
+    return;
+  }
+  console.log('🚚 분리 저장 마이그레이션 시작: ' + filesWithData.length + '개 첨부 파일');
+  const ind = document.getElementById('save-indicator');
+  let done = 0, failed = 0;
+  for(const d of filesWithData){
+    if(ind){ ind.textContent = '🚚 마이그레이션 중 (' + (done+failed+1) + '/' + filesWithData.length + ')'; ind.style.color='#fbbf24'; }
+    const ok = await dbxUploadFile(d.id, d.data, d.fileType);
+    if(ok){
+      done++;
+      // 메모리의 DOC_FILES에서도 data 필드 제거 (메타데이터만 유지)
+      const idx = DOC_FILES.findIndex(x => x.id === d.id);
+      if(idx >= 0 && DOC_FILES[idx].data) delete DOC_FILES[idx].data;
+    } else {
+      failed++;
+    }
+  }
+  console.log('🚚 마이그레이션 완료: 성공 ' + done + ', 실패 ' + failed);
+  if(failed > 0){
+    if(ind){ ind.textContent='⚠️ 일부 첨부 마이그레이션 실패'; ind.style.color='#fca5a5'; }
+    alert('⚠️ 첨부 파일 분리 저장 마이그레이션 일부 실패\n\n' +
+          '성공: ' + done + '개 / 실패: ' + failed + '개\n\n' +
+          'F12 콘솔에서 자세한 오류를 확인해 주세요.\n' +
+          '실패한 파일은 다음 새로고침 때 다시 시도됩니다.');
+    return;
+  }
+  // 모두 성공 → 메인 JSON 재업로드 (data 필드 제거된 상태로)
+  if(ind){ ind.textContent='☁️ 정리 중...'; ind.style.color='#fbbf24'; }
+  const ok = await dbxUploadCurrentData();
+  if(ok){
+    console.log('✅ 마이그레이션 완료 + 메인 JSON 정리 완료');
+    if(ind){
+      ind.textContent='✅ 분리 저장 전환 완료 (' + done + '개)';
+      ind.style.color='#86efac';
+      setTimeout(()=>{ ind.textContent=''; }, 4000);
+    }
+  } else {
+    console.error('❌ 마이그레이션 후 메인 JSON 업로드 실패');
+    if(ind){ ind.textContent='⚠️ 메인 JSON 정리 실패'; ind.style.color='#fca5a5'; }
+  }
 }
 
 // 버튼 표시 업데이트
@@ -2470,10 +2645,8 @@ function openDocUpload(){
 }
 async function saveDocFiles(){
   if(!pendingDocFiles.length){alert('파일을 선택하세요.');return;}
-  // 용량 정보
   const newSize = pendingDocFiles.reduce((s,f)=>s+(f.data?f.data.length:0),0);
-  const existingSize = DOC_FILES.reduce((s,f)=>s+(f.data?f.data.length:0),0);
-  const totalMB = ((newSize+existingSize)/1024/1024).toFixed(2);
+  const totalMB = (newSize/1024/1024).toFixed(2);
   // 미연결/오프라인 경고
   if(_offlineMode || !dbxIsConnected()){
     if(!confirm('⚠️ 현재 Dropbox에 연결되어 있지 않거나 오프라인 상태입니다.\n\n' +
@@ -2483,22 +2656,45 @@ async function saveDocFiles(){
   const no=parseInt(document.getElementById('dm-no').value)||null;
   const cat=document.getElementById('dm-cat').value;
   const desc=document.getElementById('dm-desc').value.trim();
-  const before = DOC_FILES.length;
-  const addedCount = pendingDocFiles.length;
-  pendingDocFiles.forEach(f=>{
-    DOC_FILES.push({id:nextDocId++,no,cat,desc,name:f.name,size:f.size,fileType:f.type,data:f.data,date:today()});
-  });
-  pendingDocFiles=[];
+  const filesToAdd = pendingDocFiles.slice(); // 복사
+  pendingDocFiles = [];
   closeModal('doc-modal');
-  renderDocs();
 
-  // Dropbox에 연결되어 있으면 즉시 동기 업로드 (디바운싱 우회 — 큰 데이터라 새로고침 전에 끝내야 함)
   if(dbxIsConnected() && !_offlineMode){
+    // ── 온라인: 각 파일을 개별 업로드 후 메인 JSON 업데이트 ──
     const ind = document.getElementById('save-indicator');
-    if(ind){ ind.textContent='☁️ Dropbox 저장 중... (' + totalMB + 'MB)'; ind.style.color='#fbbf24'; }
-    clearTimeout(_saveTimer); // autoSave 예약 취소 (직접 처리)
-    const ok = await dbxUploadCurrentData();
-    if(ok){
+    clearTimeout(_saveTimer);
+
+    const added = []; // 성공한 항목
+    let failed = 0;
+    for(let i=0; i<filesToAdd.length; i++){
+      const f = filesToAdd[i];
+      const id = nextDocId++;
+      if(ind){ ind.textContent='☁️ 첨부 업로드 (' + (i+1) + '/' + filesToAdd.length + ')'; ind.style.color='#fbbf24'; }
+      const ok = await dbxUploadFile(id, f.data, f.type);
+      if(ok){
+        // 메모리에 추가 (data 필드는 메모리에는 유지 — 같은 세션에서 즉시 다운로드 가능)
+        const docEntry = {id, no, cat, desc, name:f.name, size:f.size, fileType:f.type, data:f.data, date:today()};
+        DOC_FILES.push(docEntry);
+        added.push(docEntry);
+      } else {
+        failed++;
+        nextDocId--; // 실패한 id는 되돌림
+      }
+    }
+
+    renderDocs();
+
+    if(added.length === 0){
+      if(ind){ ind.textContent='❌ 업로드 실패'; ind.style.color='#fca5a5'; }
+      alert('❌ 첨부 업로드 실패\n\n어느 파일도 Dropbox에 업로드되지 않았습니다.\nF12 콘솔에서 자세한 오류를 확인해 주세요.');
+      return;
+    }
+
+    // 메인 JSON 업데이트 (메타데이터만)
+    if(ind){ ind.textContent='☁️ 메인 데이터 저장 중...'; ind.style.color='#fbbf24'; }
+    const metaOk = await dbxUploadCurrentData();
+    if(metaOk){
       _hasUnsavedChanges = false;
       _lastSyncTime = Date.now();
       if(ind){
@@ -2506,26 +2702,23 @@ async function saveDocFiles(){
         ind.style.color='#86efac';
         setTimeout(()=>{ ind.textContent=''; }, 2500);
       }
-      alert('✅ 업로드 완료\n계약서류 자료실 + Dropbox 저장 완료\n총 ' + totalMB + 'MB');
+      const failMsg = failed > 0 ? '\n(' + failed + '개 실패)' : '';
+      alert('✅ 업로드 완료\n첨부 파일 ' + added.length + '개, 총 ' + totalMB + 'MB' + failMsg);
     } else {
-      // 업로드 실패: 추가한 파일 롤백 (디스크 상태와 메모리 일치 유지)
-      DOC_FILES.length = before;
-      nextDocId -= addedCount;
-      renderDocs();
-      if(ind){
-        ind.textContent='❌ Dropbox 저장 실패';
-        ind.style.color='#fca5a5';
-      }
-      alert('❌ Dropbox 저장 실패\n\n첨부 파일이 Dropbox에 저장되지 않았습니다.\n' +
-            '추가했던 파일은 롤백되었습니다.\n\n' +
-            '브라우저 개발자도구(F12) → 콘솔 탭에서 자세한 오류 메시지를 확인해 주세요.\n\n' +
-            '가능한 원인:\n' +
-            '• 파일 용량 과다 (현재 합계 ' + totalMB + 'MB)\n' +
-            '• 네트워크 일시 중단\n' +
-            '• Dropbox 토큰 만료 → 📦 Dropbox 버튼으로 재연결');
+      // 메인 JSON 업로드 실패 → 첨부 파일은 이미 올라갔지만 메타데이터가 안 맞음
+      // 다음 자동 저장 시 복구되도록 _hasUnsavedChanges 유지
+      _hasUnsavedChanges = true;
+      if(ind){ ind.textContent='⚠️ 메인 저장 실패'; ind.style.color='#fca5a5'; }
+      alert('⚠️ 메인 데이터 저장 실패\n\n' +
+            '첨부 파일은 Dropbox에 업로드됐으나 메타데이터 갱신이 실패했습니다.\n' +
+            '잠시 후 자동으로 재시도되거나, 다른 작업을 하시면 함께 저장됩니다.');
     }
   } else {
-    // 오프라인/미연결: 메모리에만 추가, 사용자가 💾 백업해야 함
+    // ── 오프라인/미연결: 메모리에만 추가 ──
+    filesToAdd.forEach(f=>{
+      DOC_FILES.push({id:nextDocId++, no, cat, desc, name:f.name, size:f.size, fileType:f.type, data:f.data, date:today()});
+    });
+    renderDocs();
     _hasUnsavedChanges = true;
     alert('업로드 완료 (메모리)\n\n⚠️ Dropbox 미연결 상태입니다.\n💾 백업 버튼으로 .json 파일을 저장하지 않으면 새로고침 시 사라집니다.\n\n총 ' + totalMB + 'MB');
   }
@@ -2570,16 +2763,62 @@ function renderDocs(){
     </div>`;
   }).join('');
 }
-function downloadDoc(id){
-  const d=DOC_FILES.find(x=>x.id===id);
-  if(!d||!d.data){alert('파일 데이터가 없습니다.');return;}
-  const a=document.createElement('a');
-  a.href=d.data; a.download=d.name; a.click();
+async function downloadDoc(id){
+  const d = DOC_FILES.find(x=>x.id===id);
+  if(!d){ alert('파일 정보를 찾을 수 없습니다.'); return; }
+  // 1) 메모리에 base64 data가 있으면 즉시 다운로드 (같은 세션 내)
+  if(d.data){
+    const a = document.createElement('a');
+    a.href = d.data; a.download = d.name; a.click();
+    return;
+  }
+  // 2) 없으면 Dropbox에서 가져오기 (lazy load)
+  if(!dbxIsConnected() || _offlineMode){
+    alert('⚠️ 파일 데이터가 메모리에 없고 Dropbox에 연결되어 있지 않아 다운로드할 수 없습니다.\n📦 Dropbox에 연결해 주세요.');
+    return;
+  }
+  const ind = document.getElementById('save-indicator');
+  if(ind){ ind.textContent='📥 첨부 다운로드 중...'; ind.style.color='#fbbf24'; }
+  const dataUrl = await dbxDownloadFile(id, d.fileType);
+  if(ind){ ind.textContent=''; }
+  if(!dataUrl){
+    alert('❌ 파일을 가져오지 못했습니다.\n\n파일이 Dropbox에서 삭제되었거나 네트워크 오류일 수 있습니다.\nF12 콘솔에서 자세한 오류를 확인해 주세요.');
+    return;
+  }
+  // 메모리에 캐시 (재다운로드 방지)
+  d.data = dataUrl;
+  // 다운로드 트리거
+  const a = document.createElement('a');
+  a.href = dataUrl; a.download = d.name; a.click();
 }
-function deleteDoc(id){
-  showConfirm('이 파일을 삭제하시겠습니까?',()=>{
-DOC_FILES=DOC_FILES.filter(d=>d.id!==id);
-	    closeModal('confirm-modal'); renderDocs(); autoSave();
+
+async function deleteDoc(id){
+  showConfirm('이 파일을 삭제하시겠습니까?', async ()=>{
+    closeModal('confirm-modal');
+    const target = DOC_FILES.find(d=>d.id===id);
+    if(!target){ renderDocs(); return; }
+    // 메모리에서 먼저 제거
+    DOC_FILES = DOC_FILES.filter(d=>d.id!==id);
+    renderDocs();
+    // Dropbox에 연결되어 있으면 개별 파일 + 메인 JSON 갱신
+    if(dbxIsConnected() && !_offlineMode){
+      const ind = document.getElementById('save-indicator');
+      if(ind){ ind.textContent='🗑️ 첨부 삭제 중...'; ind.style.color='#fbbf24'; }
+      // 1) 개별 파일 삭제 (실패해도 진행)
+      await dbxDeleteFile(id);
+      // 2) 메인 JSON 갱신
+      if(ind){ ind.textContent='☁️ 메인 데이터 저장 중...'; ind.style.color='#fbbf24'; }
+      const ok = await dbxUploadCurrentData();
+      if(ok){
+        _hasUnsavedChanges = false;
+        if(ind){ ind.textContent='☁️ 삭제 완료'; ind.style.color='#86efac'; setTimeout(()=>{ ind.textContent=''; }, 2000); }
+      } else {
+        _hasUnsavedChanges = true;
+        if(ind){ ind.textContent='⚠️ 메인 저장 실패'; ind.style.color='#fca5a5'; }
+      }
+    } else {
+      _hasUnsavedChanges = true;
+    }
   });
 }
 
