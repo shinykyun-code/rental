@@ -73,6 +73,12 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 #page-list table{table-layout:fixed;min-width:200px}
 #page-list thead th{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #page-list tbody td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ══ 계약목록 검색 영역 + 테이블 헤더 sticky 고정 ══ */
+#page-list .card .controls{position:sticky;top:0;z-index:30;background:#fff}
+#page-list .card .info-row{position:sticky;top:var(--list-controls-h,84px);z-index:29;background:#fff}
+#page-list thead{position:sticky;top:var(--list-thead-top,108px);z-index:28}
+#page-list thead th{background:#f7f8fa}
 thead th.resizable{position:relative;user-select:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .col-resizer{position:absolute;right:0;top:0;width:6px;height:100%;cursor:col-resize;z-index:5}
 .col-resizer:hover,.col-resizer.dragging{background:rgba(26,86,160,.35)}
@@ -2238,6 +2244,8 @@ function renderList(){
       </div>`;
     }).join('');
   }
+  // 검색바 줄바꿈 등으로 sticky 영역 높이 변할 수 있으므로 재측정
+  if(typeof updateListStickyOffsets === 'function') updateListStickyOffsets();
 }
 
 // ══ 계약 상세 ══
@@ -3931,6 +3939,22 @@ async function startApp(userId){
       ind.style.color='#86efac';
       setTimeout(()=>{ if(ind) ind.textContent=''; }, 2000);
     }
+  }
+  // sticky 영역 높이 계산
+  updateListStickyOffsets();
+  window.addEventListener('resize', updateListStickyOffsets);
+}
+
+// 계약목록 검색바 + 헤더 sticky 높이 동적 측정
+function updateListStickyOffsets(){
+  const controls = document.querySelector('#page-list .card .controls');
+  const infoRow = document.querySelector('#page-list .card .info-row');
+  const root = document.documentElement;
+  if(controls){
+    const h = controls.getBoundingClientRect().height;
+    root.style.setProperty('--list-controls-h', h + 'px');
+    const infoH = infoRow ? infoRow.getBoundingClientRect().height : 0;
+    root.style.setProperty('--list-thead-top', (h + infoH) + 'px');
   }
 }
 
