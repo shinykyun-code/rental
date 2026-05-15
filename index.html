@@ -68,17 +68,30 @@ select.inp{cursor:pointer}
 .btn-xs{padding:3px 8px;font-size:11px;border-radius:4px}
 
 /* TABLE */
-.tbl-wrap{overflow-x:auto}
+.tbl-wrap{overflow-x:auto;overflow-y:visible}
 table{width:100%;border-collapse:collapse;font-size:13px}
+#page-list .tbl-wrap{overflow:visible} /* sticky 헤더가 페이지 스크롤을 따라가도록 */
 #page-list table{table-layout:fixed;min-width:200px}
 #page-list thead th{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #page-list tbody td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+/* ══ 하단 고정 가로 스크롤바 (계약목록 전용, 필요시에만 표시) ══ */
+#h-scrollbar{display:none;position:fixed;left:0;right:0;bottom:0;height:16px;background:#fff;border-top:1px solid var(--border);z-index:40;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+#h-scrollbar.show{display:block}
+#h-scrollbar > div{height:1px}
+/* 스크롤바를 시각적으로 더 잘 보이게 */
+#h-scrollbar::-webkit-scrollbar{height:14px}
+#h-scrollbar::-webkit-scrollbar-track{background:#f1f5f9}
+#h-scrollbar::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:8px;border:2px solid #f1f5f9}
+#h-scrollbar::-webkit-scrollbar-thumb:hover{background:#64748b}
+
 /* ══ 계약목록 검색 영역 + 테이블 헤더 sticky 고정 ══ */
-#page-list .card .controls{position:sticky;top:0;z-index:30;background:#fff}
-#page-list .card .info-row{position:sticky;top:var(--list-controls-h,84px);z-index:29;background:#fff}
-#page-list thead{position:sticky;top:var(--list-thead-top,108px);z-index:28}
-#page-list thead th{background:#f7f8fa}
+/* nav 높이는 52px, sticky 시작점은 그 바로 아래 */
+#page-list .card{overflow:visible} /* sticky가 작동하도록 카드 overflow 해제 */
+#page-list{padding-bottom:24px} /* 하단 스크롤바에 마지막 행이 가려지지 않도록 */
+#page-list .card .controls{position:sticky;top:var(--list-controls-top,52px);z-index:30;background:#fff;border-bottom:1px solid var(--border)}
+#page-list .card .info-row{position:sticky;top:var(--list-controls-h,136px);z-index:29;background:#fff}
+#page-list thead th{position:sticky;top:var(--list-thead-top,170px);z-index:28;background:#f7f8fa;box-shadow:0 1px 0 var(--border)}
 thead th.resizable{position:relative;user-select:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .col-resizer{position:absolute;right:0;top:0;width:6px;height:100%;cursor:col-resize;z-index:5}
 .col-resizer:hover,.col-resizer.dragging{background:rgba(26,86,160,.35)}
@@ -389,6 +402,8 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
 
 
 <div id="main-app" style="display:none">
+<!-- 하단 고정 가로 스크롤바 (계약목록 가로 스크롤용, 필요시에만 표시) -->
+<div id="h-scrollbar"><div id="h-scrollbar-inner"></div></div>
 <nav class="nav">
   <div class="nav-logo">📋 임대관리<span>시스템 v3</span></div>
   <div class="nav-tab active" onclick="showPage('list')">계약 목록</div>
@@ -1875,6 +1890,8 @@ function showPage(id){
   const tabs=document.querySelectorAll('.nav-tab');
   if(tabs[idx]) tabs[idx].classList.add('active');
   if(id==='list') renderList();
+  // 페이지 전환 시 하단 가로 스크롤바 재평가
+  setTimeout(()=>{ if(typeof updateHorizontalScrollbar === 'function') updateHorizontalScrollbar(); }, 50);
   if(id==='payment'){
     const pf=document.getElementById('pay-from');
     const pt=document.getElementById('pay-to');
@@ -3943,19 +3960,83 @@ async function startApp(userId){
   // sticky 영역 높이 계산
   updateListStickyOffsets();
   window.addEventListener('resize', updateListStickyOffsets);
+  // 하단 가로 스크롤바 양방향 동기화 초기화
+  initHorizontalScrollbarSync();
 }
 
 // 계약목록 검색바 + 헤더 sticky 높이 동적 측정
 function updateListStickyOffsets(){
+  const nav = document.querySelector('.nav');
   const controls = document.querySelector('#page-list .card .controls');
   const infoRow = document.querySelector('#page-list .card .info-row');
   const root = document.documentElement;
+  const navH = nav ? nav.getBoundingClientRect().height : 52;
   if(controls){
-    const h = controls.getBoundingClientRect().height;
-    root.style.setProperty('--list-controls-h', h + 'px');
+    const controlsH = controls.getBoundingClientRect().height;
     const infoH = infoRow ? infoRow.getBoundingClientRect().height : 0;
-    root.style.setProperty('--list-thead-top', (h + infoH) + 'px');
+    root.style.setProperty('--list-controls-top', navH + 'px');
+    root.style.setProperty('--list-controls-h', (navH + controlsH) + 'px');
+    root.style.setProperty('--list-thead-top', (navH + controlsH + infoH) + 'px');
   }
+  updateHorizontalScrollbar();
+}
+
+// ══ 하단 고정 가로 스크롤바: 표시 여부 결정 + 양방향 동기화 ══
+let _hScrollSync = false;
+function updateHorizontalScrollbar(){
+  const sb = document.getElementById('h-scrollbar');
+  const sbInner = document.getElementById('h-scrollbar-inner');
+  if(!sb || !sbInner) return;
+
+  // 계약목록 페이지가 활성 상태인지 확인
+  const listPage = document.getElementById('page-list');
+  const pageVisible = listPage && listPage.classList.contains('active');
+  const table = listPage ? listPage.querySelector('table') : null;
+
+  if(!pageVisible || !table){
+    sb.classList.remove('show');
+    return;
+  }
+
+  // 페이지 가로 스크롤이 필요한지 확인
+  const docW = document.documentElement.scrollWidth;
+  const winW = document.documentElement.clientWidth;
+  const overflowAmount = docW - winW;
+
+  if(overflowAmount > 2){
+    // 가로 스크롤 필요 → 표시
+    sb.classList.add('show');
+    // 내부 div의 width를 문서 전체 너비로 설정 → 스크롤바 크기 자동 계산됨
+    sbInner.style.width = docW + 'px';
+  } else {
+    sb.classList.remove('show');
+  }
+}
+
+// 페이지 가로 스크롤 ↔ 하단 스크롤바 양방향 동기화 (1회 바인딩)
+function initHorizontalScrollbarSync(){
+  const sb = document.getElementById('h-scrollbar');
+  if(!sb || sb.dataset.bound) return;
+  sb.dataset.bound = '1';
+
+  // 하단 스크롤바 움직임 → 페이지 가로 스크롤
+  sb.addEventListener('scroll', function(){
+    if(_hScrollSync) return;
+    _hScrollSync = true;
+    window.scrollTo({left: sb.scrollLeft, top: window.scrollY, behavior:'instant'});
+    requestAnimationFrame(()=>{ _hScrollSync = false; });
+  });
+
+  // 페이지 가로 스크롤 → 하단 스크롤바 (그리고 sticky 재측정 트리거)
+  window.addEventListener('scroll', function(){
+    if(_hScrollSync) return;
+    _hScrollSync = true;
+    sb.scrollLeft = window.scrollX;
+    requestAnimationFrame(()=>{ _hScrollSync = false; });
+  }, {passive:true});
+
+  // 윈도우 리사이즈 시 표시 여부 재평가
+  window.addEventListener('resize', updateHorizontalScrollbar);
 }
 
 function showApp(userId){
