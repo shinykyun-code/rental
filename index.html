@@ -320,7 +320,9 @@ tbody td{padding:13px 12px;vertical-align:middle}
 }
 #pay-tip{position:fixed;z-index:9999;background:#1e293b;color:#f1f5f9;border-radius:7px;padding:9px 13px;font-size:12px;line-height:1.7;pointer-events:none;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.25);display:none}
 
-/* 거래처 자동완성 콤보박스 */
+/* ══ 입금 셀 세로 드래그 복사 ══ */
+td.pay-cell.pay-drag-source{outline:2px solid #2563eb;outline-offset:-2px;background:#dbeafe!important}
+td.pay-cell.pay-drag-target{outline:2px dashed #60a5fa;outline-offset:-2px;background:#eff6ff!important}
 .autocmp-wrap{position:relative}
 .autocmp-dd{display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:6px;max-height:220px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:10001}
 .autocmp-dd.open{display:block}
@@ -2954,8 +2956,7 @@ function renderPayment(){
       const cls=isDone?'pmt-done':v?'pmt-special':'pmt-miss';
       const memoVal=(c.payments[k+'_memo']||'').replace(/'/g,'&#39;');
       const label=isDone?parseInt(v.slice(5,7))+'/'+parseInt(v.slice(8)):v?'⚠️':'❌';
-      return `<td style="text-align:center;padding:4px 2px;cursor:pointer;position:relative"
-        onclick="openPayEditFor(${c.no},'${k}')"
+      return `<td class="pay-cell" data-no="${c.no}" data-key="${k}" data-val="${v||''}" style="text-align:center;padding:4px 2px;cursor:pointer;position:relative;user-select:none"
         onmouseenter="showPayTip(this,'${k}','${v||''}','${memoVal}')"
         onmouseleave="hidePayTip()">
         <span class="badge ${cls}" style="border-radius:4px;font-size:11px">${label}</span>
@@ -4077,6 +4078,165 @@ function initHorizontalScrollbarSync(){
   // 윈도우 리사이즈 시 표시 여부 재평가
   window.addEventListener('resize', updateHorizontalScrollbar);
 }
+
+// ══ 입금 셀 세로 드래그 복사 ══
+(function(){
+  let dragStartCell = null;   // 시작 셀 (TD)
+  let dragStartKey = null;    // 시작 셀의 컬럼 key (예: '2025-11')
+  let dragStartVal = null;    // 복사할 값
+  let dragTargets = [];       // 드래그된 대상 셀들
+  let isDragging = false;
+  let dragMoved = false;
+
+  function isPayCell(el){
+    return el && el.closest ? el.closest('td.pay-cell') : null;
+  }
+  function clearDragVisual(){
+    if(dragStartCell) dragStartCell.classList.remove('pay-drag-source');
+    dragTargets.forEach(t => t.classList.remove('pay-drag-target'));
+    dragTargets = [];
+  }
+  function resetDragState(){
+    clearDragVisual();
+    dragStartCell = null;
+    dragStartKey = null;
+    dragStartVal = null;
+    isDragging = false;
+    dragMoved = false;
+  }
+
+  document.addEventListener('mousedown', function(e){
+    const td = isPayCell(e.target);
+    if(!td) return;
+    // 입금관리 페이지 안의 셀인지 확인
+    if(!td.closest('#pay-body')) return;
+    const val = td.dataset.val;
+    // 빈 셀(❌)에서는 드래그 비활성화 → 그냥 클릭으로 처리됨
+    if(!val){
+      return; // 기본 클릭 동작 → mouseup 시 openPayEditFor 호출
+    }
+    // 드래그 모드 시작
+    isDragging = true;
+    dragMoved = false;
+    dragStartCell = td;
+    dragStartKey = td.dataset.key;
+    dragStartVal = val;
+    td.classList.add('pay-drag-source');
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function(e){
+    if(!isDragging || !dragStartCell) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if(!el) return;
+    const td = isPayCell(el);
+    if(!td) return;
+    if(td === dragStartCell) return; // 같은 셀
+    // 같은 컬럼(같은 key)인 셀만 대상
+    if(td.dataset.key !== dragStartKey) return;
+    dragMoved = true;
+    // 시작 셀과 현재 셀 사이의 같은 컬럼 셀들 모두 하이라이트
+    // 같은 컬럼 = 같은 data-key를 가진 셀들 중에서 행 인덱스 기준으로 범위 선택
+    const allSameColumn = Array.from(document.querySelectorAll('#pay-body td.pay-cell[data-key="' + dragStartKey + '"]'));
+    const startIdx = allSameColumn.indexOf(dragStartCell);
+    const endIdx = allSameColumn.indexOf(td);
+    if(startIdx < 0 || endIdx < 0) return;
+    const [lo, hi] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+    // 기존 target 클리어 후 새로 설정 (시작 셀은 제외)
+    dragTargets.forEach(t => t.classList.remove('pay-drag-target'));
+    dragTargets = allSameColumn.slice(lo, hi+1).filter(t => t !== dragStartCell);
+    dragTargets.forEach(t => t.classList.add('pay-drag-target'));
+  });
+
+  document.addEventListener('mouseup', function(e){
+    if(!isDragging){
+      // 드래그가 아니었으면 그냥 클릭 처리
+      const td = isPayCell(e.target);
+      if(td && td.closest('#pay-body')){
+        const no = parseInt(td.dataset.no);
+        const key = td.dataset.key;
+        if(no && key && typeof openPayEditFor === 'function'){
+          openPayEditFor(no, key);
+        }
+      }
+      return;
+    }
+    const wasDrag = dragMoved;
+    const startCell = dragStartCell;
+    const targets = dragTargets.slice();
+    const val = dragStartVal;
+    const key = dragStartKey;
+    isDragging = false;
+    dragMoved = false;
+    if(!wasDrag){
+      // 드래그 안 했고 시작 셀에서만 mousedown → 일반 클릭으로 모달 열기
+      clearDragVisual();
+      dragStartCell = null;
+      if(startCell){
+        const no = parseInt(startCell.dataset.no);
+        if(no && key && typeof openPayEditFor === 'function'){
+          openPayEditFor(no, key);
+        }
+      }
+      return;
+    }
+    // 실제 드래그 발생 → 복사 처리
+    clearDragVisual();
+    dragStartCell = null;
+    dragStartKey = null;
+    dragStartVal = null;
+    if(!targets.length) return;
+    applyPayDragCopy(targets, key, val);
+  }, true);
+
+  // 다른 영역 클릭으로 esc 효과
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape' && isDragging){ resetDragState(); }
+  });
+
+  // 드래그 결과 적용
+  async function applyPayDragCopy(targetCells, key, val){
+    // 이미 값이 있는 셀들 카운트 (덮어쓰기 경고용)
+    const overwriting = targetCells.filter(t => t.dataset.val).length;
+    let msg = '🗓️ 입금일 복사\n\n';
+    // 값을 사람이 알아보기 쉽게
+    const dispVal = (/^\d{4}-\d{2}-\d{2}/.test(val)) ? val : val;
+    msg += '값: ' + dispVal + '\n';
+    msg += '대상 셀 수: ' + targetCells.length + '개\n';
+    if(overwriting > 0){
+      msg += '\n⚠️ 그 중 ' + overwriting + '개 셀에는 이미 값이 있습니다.\n덮어쓰시겠습니까?';
+    } else {
+      msg += '\n계속 진행하시겠습니까?';
+    }
+    if(!confirm(msg)) return;
+
+    // 데이터 적용 (메모는 비움 — 사용자가 메모 b 선택)
+    let applied = 0;
+    targetCells.forEach(td => {
+      const no = parseInt(td.dataset.no);
+      const c = CONTRACTS.find(x => x.no === no);
+      if(!c) return;
+      if(!c.payments) c.payments = {};
+      c.payments[key] = val;
+      // 메모는 비우기
+      delete c.payments[key + '_memo'];
+      applied++;
+    });
+
+    // 화면 갱신
+    if(typeof renderPayment === 'function') renderPayment();
+    // 자동 저장 (Dropbox)
+    if(typeof autoSave === 'function') autoSave();
+
+    // 결과 표시
+    const ind = document.getElementById('save-indicator');
+    if(ind){
+      ind.textContent = '✅ ' + applied + '개 셀에 복사됨';
+      ind.style.color = '#86efac';
+      setTimeout(()=>{ if(ind) ind.textContent=''; }, 2500);
+    }
+  }
+})();
 
 function showApp(userId){
   document.getElementById('login-screen').classList.add('hidden');
