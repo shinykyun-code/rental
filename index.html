@@ -91,7 +91,14 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 #page-list{padding-bottom:24px} /* 하단 스크롤바에 마지막 행이 가려지지 않도록 */
 #page-list .card .controls{position:sticky;top:var(--list-controls-top,52px);z-index:30;background:#fff;border-bottom:1px solid var(--border)}
 #page-list .card .info-row{position:sticky;top:var(--list-controls-h,136px);z-index:29;background:#fff}
-#page-list thead th{position:sticky;top:var(--list-thead-top,170px);z-index:28;background:#f7f8fa;box-shadow:0 1px 0 var(--border)}
+#page-list thead th{position:sticky;top:var(--list-thead-top,170px);z-index:28;background:#e5e7eb;box-shadow:0 1px 0 var(--border)}
+
+/* ══ 입금관리 첫번째 카드: 검색바 + 컬럼 헤더 sticky 고정 ══ */
+#page-payment{padding-bottom:24px}
+#page-payment > .card:first-child{overflow:visible}
+#page-payment > .card:first-child .tbl-wrap{overflow:visible}
+#page-payment > .card:first-child .controls{position:sticky;top:var(--pay-controls-top,52px);z-index:30;background:#fff;border-bottom:1px solid var(--border)}
+#page-payment #pay-table thead th{position:sticky;top:var(--pay-thead-top,100px);z-index:28;background:#e5e7eb;box-shadow:0 1px 0 var(--border)}
 thead th.resizable{position:relative;user-select:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .col-resizer{position:absolute;right:0;top:0;width:6px;height:100%;cursor:col-resize;z-index:5}
 .col-resizer:hover,.col-resizer.dragging{background:rgba(26,86,160,.35)}
@@ -101,6 +108,24 @@ tbody tr{border-bottom:1px solid #d1d5db;transition:background .1s}
 tbody tr:hover{background:#f0f5ff;cursor:pointer}
 tbody td{padding:13px 12px;vertical-align:middle}
 .tbl-action{display:flex;gap:4px;flex-wrap:wrap}
+
+/* ══ 계약목록 + 입금관리 테이블: 진한 헤더 + 옅은 경계 ══ */
+#page-list thead th,
+#page-payment thead th{
+  background:#e5e7eb;
+  color:#1f2937;
+  font-weight:700;
+  border-bottom:1.5px solid var(--border);
+  border-right:1px solid #e5e7eb;
+}
+#page-list thead th:last-child,
+#page-payment thead th:last-child{border-right:none}
+#page-list tbody tr,
+#page-payment tbody tr{border-bottom:1px solid #d1d5db}
+#page-list tbody td,
+#page-payment tbody td{border-right:1px solid #f3f4f6}
+#page-list tbody td:last-child,
+#page-payment tbody td:last-child{border-right:none}
 
 /* BADGES */
 .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;white-space:nowrap}
@@ -619,6 +644,7 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
     </div>
     <div class="controls">
       <input class="inp inp-search" type="text" id="pay-srch" placeholder="🔍 거래처명 검색...">
+      <button class="btn btn-ghost btn-sm" onclick="clearPaySrch()" style="font-size:11px;color:#7c3aed;border-color:#c4b5fd;white-space:nowrap">✕ 초기화</button>
       <label style="font-size:12px;color:var(--text3);white-space:nowrap">시작</label>
       <input class="inp" type="month" id="pay-from" style="width:130px">
       <label style="font-size:12px;color:var(--text3)">~</label>
@@ -2960,6 +2986,8 @@ function renderPayment(){
       </div></td>
     </tr>`;
   }).join(''):`<tr><td colspan="6"><div class="empty"><div class="empty-icon">💰</div>추가사용료 내역이 없습니다</div></td></tr>`;
+  // sticky 영역 높이 재측정 (월별 컬럼 수가 변하면 헤더 줄바꿈으로 높이가 달라질 수 있음)
+  if(typeof updateListStickyOffsets === 'function') updateListStickyOffsets();
 }
 
 
@@ -3197,6 +3225,7 @@ function safeOn(id, evt, fn){ const el=document.getElementById(id); if(el) el.ad
 ['srch','flt-cms','flt-paid','flt-reg','flt-status'].forEach(id=>safeOn(id,id==='srch'?'input':'change',applyFilters));
 safeOn('srch2','input',applyFilters);
 function clearSrch2(){ const el=document.getElementById('srch2'); if(el){el.value='';} applyFilters(); }
+function clearPaySrch(){ const el=document.getElementById('pay-srch'); if(el){el.value='';} if(typeof renderPayment === 'function') renderPayment(); }
 safeOn('doc-srch','input',renderDocs);
 ['doc-type','doc-cat'].forEach(id=>safeOn(id,'change',renderDocs));
 
@@ -3967,10 +3996,12 @@ async function startApp(userId){
 // 계약목록 검색바 + 헤더 sticky 높이 동적 측정
 function updateListStickyOffsets(){
   const nav = document.querySelector('.nav');
-  const controls = document.querySelector('#page-list .card .controls');
-  const infoRow = document.querySelector('#page-list .card .info-row');
   const root = document.documentElement;
   const navH = nav ? nav.getBoundingClientRect().height : 52;
+
+  // 계약목록 페이지
+  const controls = document.querySelector('#page-list .card .controls');
+  const infoRow = document.querySelector('#page-list .card .info-row');
   if(controls){
     const controlsH = controls.getBoundingClientRect().height;
     const infoH = infoRow ? infoRow.getBoundingClientRect().height : 0;
@@ -3978,6 +4009,15 @@ function updateListStickyOffsets(){
     root.style.setProperty('--list-controls-h', (navH + controlsH) + 'px');
     root.style.setProperty('--list-thead-top', (navH + controlsH + infoH) + 'px');
   }
+
+  // 입금관리 페이지 (첫번째 카드)
+  const payControls = document.querySelector('#page-payment > .card:first-child .controls');
+  if(payControls){
+    const payControlsH = payControls.getBoundingClientRect().height;
+    root.style.setProperty('--pay-controls-top', navH + 'px');
+    root.style.setProperty('--pay-thead-top', (navH + payControlsH) + 'px');
+  }
+
   updateHorizontalScrollbar();
 }
 
@@ -3988,12 +4028,13 @@ function updateHorizontalScrollbar(){
   const sbInner = document.getElementById('h-scrollbar-inner');
   if(!sb || !sbInner) return;
 
-  // 계약목록 페이지가 활성 상태인지 확인
+  // 계약목록 또는 입금관리 페이지가 활성 상태인지 확인
   const listPage = document.getElementById('page-list');
-  const pageVisible = listPage && listPage.classList.contains('active');
-  const table = listPage ? listPage.querySelector('table') : null;
+  const payPage = document.getElementById('page-payment');
+  const listActive = listPage && listPage.classList.contains('active');
+  const payActive = payPage && payPage.classList.contains('active');
 
-  if(!pageVisible || !table){
+  if(!listActive && !payActive){
     sb.classList.remove('show');
     return;
   }
@@ -4004,9 +4045,7 @@ function updateHorizontalScrollbar(){
   const overflowAmount = docW - winW;
 
   if(overflowAmount > 2){
-    // 가로 스크롤 필요 → 표시
     sb.classList.add('show');
-    // 내부 div의 width를 문서 전체 너비로 설정 → 스크롤바 크기 자동 계산됨
     sbInner.style.width = docW + 'px';
   } else {
     sb.classList.remove('show');
