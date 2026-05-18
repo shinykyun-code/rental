@@ -320,7 +320,8 @@ tbody td{padding:13px 12px;vertical-align:middle}
 }
 #pay-tip{position:fixed;z-index:9999;background:#1e293b;color:#f1f5f9;border-radius:7px;padding:9px 13px;font-size:12px;line-height:1.7;pointer-events:none;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.25);display:none}
 
-/* ══ 리치 텍스트 에디터 (렌탈금 메모 / 거래처 메모) ══ */
+/* ══ 추가사용료 월별 카드 hover ══ */
+.extra-month-card:hover{transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.1);outline:2px solid #185FA5}
 .rich-toolbar{display:flex;gap:3px;flex-wrap:wrap;padding:6px;background:#f9fafb;border:1px solid #d1d5db;border-bottom:none;border-radius:6px 6px 0 0;align-items:center}
 .rt-btn{height:26px;min-width:26px;padding:0 7px;background:#fff;border:1px solid #d1d5db;border-radius:4px;font-size:12px;cursor:pointer;color:#374151;font-family:inherit}
 .rt-btn:hover{background:#f3f4f6}
@@ -820,6 +821,33 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal('extra-modal')">취소</button>
       <button class="btn btn-success" onclick="saveExtraPay()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: 월별 추가사용료 상세 ══ -->
+<div class="modal-bg" id="extra-month-modal">
+  <div class="modal" style="max-width:700px">
+    <div class="modal-head"><h3 id="emd-title">월별 추가사용료 내역</h3><button class="modal-close" onclick="closeModal('extra-month-modal')">×</button></div>
+    <div style="padding:10px 16px;background:#f9fafb;font-size:12px;color:#374151;display:flex;gap:16px;border-bottom:1px solid #e5e7eb">
+      <span><strong style="color:#0c4a6e">건수</strong> <span id="emd-count">0</span>건</span>
+      <span><strong style="color:#0c4a6e">합계</strong> <span id="emd-sum" style="color:#dc2626;font-weight:700">0</span>원</span>
+    </div>
+    <div class="modal-body" style="padding:0;max-height:55vh;overflow-y:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead>
+          <tr style="background:#f3f4f6">
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:#374151;border-bottom:1.5px solid #d1d5db;width:90px">날짜</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:#374151;border-bottom:1.5px solid #d1d5db">거래처</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:#374151;border-bottom:1.5px solid #d1d5db">항목</th>
+            <th style="padding:8px 10px;text-align:right;font-weight:600;color:#374151;border-bottom:1.5px solid #d1d5db;width:110px">금액</th>
+          </tr>
+        </thead>
+        <tbody id="emd-body"></tbody>
+      </table>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('extra-month-modal')">닫기</button>
     </div>
   </div>
 </div>
@@ -2147,12 +2175,45 @@ function renderExtraMonthly(){
     const labelColor=hasData?'#185FA5':'#888780';
     const valueColor=hasData?'#042C53':'#5F5E5A';
     const display=hasData?v.toLocaleString():'-';
-    return `<div style="background:${bg};border-radius:6px;padding:8px 4px;text-align:center;min-width:0">
+    const clickAttr = hasData ? ` onclick="openExtraMonthDetail(${year},${m})" class="extra-month-card"` : '';
+    const cursor = hasData ? 'cursor:pointer' : '';
+    return `<div${clickAttr} style="background:${bg};border-radius:6px;padding:8px 4px;text-align:center;min-width:0;${cursor};transition:transform .15s,box-shadow .15s">
       <div style="font-size:11px;color:${labelColor};font-weight:600">${m}월</div>
       <div style="font-size:12px;color:${valueColor};font-weight:700;margin-top:3px;overflow:hidden;text-overflow:ellipsis">${display}</div>
     </div>`;
   }).join('');
   totalEl.textContent=yearTotal.toLocaleString()+'원';
+}
+
+// 월별 합계 카드 클릭 → 해당 월 추가사용료 내역 모달 열기
+function openExtraMonthDetail(year, month){
+  year = String(year);
+  const mm = String(month).padStart(2,'0');
+  // 해당 연/월 추가사용료 내역
+  const items = EXTRA_PAYS.filter(e => e.date && e.date.startsWith(year + '-' + mm))
+    .sort((a, b) => (a.date||'').localeCompare(b.date||''));
+  const totalSum = items.reduce((s, e) => s + (parseInt(e.amount)||0), 0);
+  document.getElementById('emd-title').textContent = '📋 ' + year + '년 ' + month + '월 추가사용료 내역';
+  document.getElementById('emd-count').textContent = items.length;
+  document.getElementById('emd-sum').textContent = totalSum.toLocaleString();
+  const body = document.getElementById('emd-body');
+  if(!items.length){
+    body.innerHTML = '<tr><td colspan="4" style="padding:24px;text-align:center;color:#9ca3af">내역이 없습니다.</td></tr>';
+  } else {
+    body.innerHTML = items.map(e => {
+      const c = CONTRACTS.find(x => x.no === e.no);
+      const cname = c ? esc(c.name) : '(거래처 없음 #' + e.no + ')';
+      const dateShort = e.date.substring(5); // 'MM-DD'
+      const memo = e.memo ? `<div style="font-size:11px;color:#6b7280;margin-top:2px">${esc(e.memo)}</div>` : '';
+      return `<tr style="border-bottom:1px solid #f3f4f6;cursor:pointer" onclick="closeModal('extra-month-modal');editExtraPay(${e.id})" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background=''">
+        <td style="padding:8px 10px;color:#374151">${dateShort}</td>
+        <td style="padding:8px 10px;color:#1f2937;font-weight:500">${cname}</td>
+        <td style="padding:8px 10px;color:#374151">${esc(e.item||'')}${memo}</td>
+        <td style="padding:8px 10px;text-align:right;color:#dc2626;font-weight:600">${(parseInt(e.amount)||0).toLocaleString()}원</td>
+      </tr>`;
+    }).join('');
+  }
+  openModal('extra-month-modal');
 }
 function applyFilters(){
   const q=document.getElementById('srch').value.toLowerCase();
