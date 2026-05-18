@@ -330,14 +330,16 @@ tbody td{padding:13px 12px;vertical-align:middle}
 .rt-swatches{display:inline-flex;gap:3px;align-items:center}
 .rt-sw{width:20px;height:20px;border-radius:3px;cursor:pointer;border:1px solid rgba(0,0,0,.15);transition:transform .1s}
 .rt-sw:hover{transform:scale(1.15)}
-.rich-editor{min-height:100px;width:100%;max-width:none;min-width:260px;border:1px solid #d1d5db;border-radius:0 0 6px 6px;padding:10px 12px;font-size:13px;line-height:1.6;font-family:inherit;outline:none;resize:both;overflow:auto;background:#fff;white-space:pre-wrap;word-break:break-word;box-sizing:border-box}
+.rich-editor{min-height:100px;width:520px;max-width:calc(95vw - 80px);min-width:280px;border:1px solid #d1d5db;border-radius:0 0 6px 6px;padding:10px 12px;font-size:13px;line-height:1.6;font-family:inherit;outline:none;resize:both;overflow:auto;background:#fff;white-space:pre-wrap;word-break:break-all;overflow-wrap:break-word;box-sizing:border-box}
 .rich-editor:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.1)}
 .rich-editor:empty:before{content:attr(data-placeholder);color:#9ca3af;pointer-events:none}
-/* 리치 에디터 모달: 에디터 크기에 따라 모달이 자동 확장됨 */
+/* 리치 에디터 모달: 화면 안에 들어가도록 제한 + 에디터 크기에 따라 자동 확장 */
 .modal-bg#rent-memo-modal .modal,
-.modal-bg#contract-memo-modal .modal{max-width:none!important;width:auto;max-height:90vh;overflow:auto}
+.modal-bg#contract-memo-modal .modal{max-width:95vw!important;width:auto;max-height:90vh;overflow:auto}
 .modal-bg#rent-memo-modal .form-group,
-.modal-bg#contract-memo-modal .form-group{display:inline-block;min-width:520px}
+.modal-bg#contract-memo-modal .form-group{display:block;max-width:calc(95vw - 60px)}
+.modal-bg#rent-memo-modal .rich-toolbar,
+.modal-bg#contract-memo-modal .rich-toolbar{max-width:calc(95vw - 60px)}
 /* 메모 아이콘 hover 시 보이는 툴팁/title 속성은 HTML 그대로 표시되지 않으므로 별도 처리 필요 */
 td.pay-cell.pay-drag-source{outline:2px solid #2563eb;outline-offset:-2px;background:#dbeafe!important}
 td.pay-cell.pay-drag-target{outline:2px dashed #60a5fa;outline-offset:-2px;background:#eff6ff!important}
@@ -3393,7 +3395,21 @@ function sanitizeMemoHtml(html){
   const doc = new DOMParser().parseFromString('<div>'+html+'</div>', 'text/html');
   const root = doc.body.firstChild;
   if(!root) return '';
-  const allowedTags = new Set(['SPAN','B','I','U','STRONG','EM','BR','DIV','P','FONT']);
+  // 먼저 <font color> 같은 레거시 태그를 <span style>로 변환 (속성 제거 전에)
+  root.querySelectorAll('font').forEach(f => {
+    const color = f.getAttribute('color');
+    const size = f.getAttribute('size');
+    const face = f.getAttribute('face');
+    const span = document.createElement('span');
+    const styles = [];
+    if(color) styles.push('color:' + color);
+    if(face) styles.push('font-family:' + face);
+    // size는 1-7 단위라 무시 (필요시 변환 가능)
+    if(styles.length) span.setAttribute('style', styles.join(';'));
+    while(f.firstChild) span.appendChild(f.firstChild);
+    f.parentNode.replaceChild(span, f);
+  });
+  const allowedTags = new Set(['SPAN','B','I','U','STRONG','EM','BR','DIV','P']);
   const allowedStyleProps = new Set(['color','font-size','font-weight','font-style','text-decoration','background-color']);
   function clean(node){
     // 텍스트 노드는 그대로
@@ -3496,6 +3512,15 @@ function bindRichToolbar(editorId){
       editor.focus();
       restoreSelection();
       document.execCommand('foreColor', false, color);
+      // execCommand가 만든 <font color="..."> 를 <span style="color:..."> 로 변환
+      // (sanitize 단계에서 color 속성이 제거되어 색상이 사라지는 문제 해결)
+      editor.querySelectorAll('font[color]').forEach(f => {
+        const c = f.getAttribute('color');
+        const span = document.createElement('span');
+        span.style.color = c;
+        while(f.firstChild) span.appendChild(f.firstChild);
+        f.parentNode.replaceChild(span, f);
+      });
       saveSelection();
     });
   });
