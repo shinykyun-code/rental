@@ -320,6 +320,15 @@ tbody td{padding:13px 12px;vertical-align:middle}
 }
 #pay-tip{position:fixed;z-index:9999;background:#1e293b;color:#f1f5f9;border-radius:7px;padding:9px 13px;font-size:12px;line-height:1.7;pointer-events:none;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.25);display:none}
 
+/* ══ 장비보유 탭 ══ */
+.inv-tabs{display:flex;gap:0;border-bottom:2px solid #d1d5db;margin-bottom:0}
+.inv-tab{padding:9px 18px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid transparent;border-bottom:none;background:transparent;color:#6b7280;border-radius:6px 6px 0 0}
+.inv-tab.active{background:#fff;color:#1e40af;border-color:#d1d5db;border-bottom:2px solid #fff;margin-bottom:-2px;font-weight:700}
+.inv-tab:hover:not(.active){background:#f3f4f6}
+.inv-tab-panel{padding-top:14px}
+.inv-dev-head td{background:#f9fafb;font-weight:700;color:#0c4a6e;border-top:1.5px solid #d1d5db;padding:8px 8px}
+.inv-dev-subtotal td{background:#f3f4f6;font-weight:600;color:#374151;font-size:11px;padding:5px 8px;border-bottom:1.5px solid #d1d5db}
+
 /* ══ 추가사용료 월별 카드 hover ══ */
 .extra-month-card:hover{transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.1);outline:2px solid #185FA5}
 .rich-toolbar{display:flex;gap:3px;flex-wrap:wrap;padding:6px;background:#f9fafb;border:1px solid #d1d5db;border-bottom:none;border-radius:6px 6px 0 0;align-items:center}
@@ -376,7 +385,7 @@ td.rent-selected{background:#dbeafe!important;outline:2px solid #3b82f6;outline-
 .counter-total{font-weight:700;color:var(--blue);font-size:12px}
 .counter-sum-row td{background:#eef2ff;font-weight:700;color:var(--blue)}
 /* 장비보유 */
-#inv-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+#inv-summary{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
 
 /* 모바일 카드형 목록 */
 .mobile-card-list{display:none}
@@ -989,8 +998,13 @@ let pendingDocFiles = []; // 서류업로드 파일
 let editingDetailFiles = []; // 상세모달 파일 추가
 
 let nextNo=623, nextSvcId=2438, nextExtraId=1, nextDocId=1;
-let INVENTORY = [];
+let INVENTORY = []; // legacy (사용 안 함, 호환성용)
 let SUPPLIES = [];
+// 새 장비보유 구조 (1.매입출고회수 요구사항)
+let PURCHASES = [];   // [{id, device, vendor, qty, price, date, supply, memo}]
+let SHIPMENTS = [];   // [{id, device, vendor, qty, date, memo}]
+let RECOVERIES = [];  // [{id, device, qty, date, vendor, memo}]
+let nextPurchaseId = 1, nextShipmentId = 1, nextRecoveryId = 1;
 // ══ Dropbox 연동 (PKCE OAuth + 자동 동기화) ══
 const DBX_APP_KEY    = 'yw32ev5w3s6obuj';
 const DBX_REDIRECT   = 'https://shinykyun-code.github.io/rental/';
@@ -1376,8 +1390,12 @@ async function dbxUploadCurrentData(options){
     INVENTORY: Array.isArray(INVENTORY) ? INVENTORY : [],
     STAFF_LIST: Array.isArray(STAFF_LIST) ? STAFF_LIST : [],
     SUPPLIES: Array.isArray(SUPPLIES) ? SUPPLIES : [],
+    PURCHASES: Array.isArray(PURCHASES) ? PURCHASES : [],
+    SHIPMENTS: Array.isArray(SHIPMENTS) ? SHIPMENTS : [],
+    RECOVERIES: Array.isArray(RECOVERIES) ? RECOVERIES : [],
     DOC_FILES: docMeta,
     nextNo, nextSvcId, nextExtraId, nextDocId, nextStaffId,
+    nextPurchaseId, nextShipmentId, nextRecoveryId,
     _schemaVersion: 2,
     _savedAt: new Date().toISOString()
   };
@@ -1496,6 +1514,9 @@ function dbxApplyData(d){
     if(Array.isArray(d.INVENTORY))   INVENTORY  = d.INVENTORY;
     if(Array.isArray(d.SUPPLIES))    SUPPLIES   = d.SUPPLIES;
     if(Array.isArray(d.STAFF_LIST))  STAFF_LIST = d.STAFF_LIST;
+    if(Array.isArray(d.PURCHASES))   PURCHASES  = d.PURCHASES;
+    if(Array.isArray(d.SHIPMENTS))   SHIPMENTS  = d.SHIPMENTS;
+    if(Array.isArray(d.RECOVERIES))  RECOVERIES = d.RECOVERIES;
     // DOC_FILES: 반드시 배열이어야 함 (이전 버전에서 {} 로 저장된 경우 보호)
     if(Array.isArray(d.DOC_FILES)){
       DOC_FILES = d.DOC_FILES;
@@ -1509,6 +1530,11 @@ function dbxApplyData(d){
     if(typeof d.nextExtraId === 'number') nextExtraId = d.nextExtraId;
     if(typeof d.nextDocId   === 'number') nextDocId   = d.nextDocId;
     if(typeof d.nextStaffId === 'number') nextStaffId = d.nextStaffId;
+    if(typeof d.nextPurchaseId === 'number') nextPurchaseId = d.nextPurchaseId;
+    if(typeof d.nextShipmentId === 'number') nextShipmentId = d.nextShipmentId;
+    if(typeof d.nextRecoveryId === 'number') nextRecoveryId = d.nextRecoveryId;
+    // 기존 INVENTORY 데이터는 사용자가 "처음부터 다시 등록" 선택 → 비움
+    INVENTORY = [];
     // [BUGFIX] 로드한 데이터에 nextNo가 없거나 기존 계약과 충돌하면 보정
     {
       const _maxNo = CONTRACTS.reduce((m,c)=>Math.max(m, Number(c.no)||0), 0);
@@ -3807,57 +3833,439 @@ function renderRentStats(){
   }).join('')+`<tr style="background:#f7f8fa;font-weight:700"><td>합계</td><td style="text-align:center">${totalCount}개</td><td style="text-align:center">100%</td><td style="text-align:right;color:var(--blue)">${totalRent.toLocaleString()}원</td></tr>`;
 }
 
-// ══ 장비보유현황 ══
-let invEditId=null;
-function getInvId(){return Date.now()+Math.floor(Math.random()*1000);}
-function getRentingQty(invName){
-  const key=invName.toUpperCase().trim();
-  return CONTRACTS.filter(c=>!c.terminated&&(c.etc||'').toUpperCase().trim()===key).reduce((s,c)=>s+(c.qty||1),0);
+// ══ 장비보유현황 (매입/출고/회수) ══
+let invCurrentTab = 'purchase';
+let purchaseEditId = null;
+let shipmentEditId = null;
+let recoveryEditId = null;
+
+function switchInvTab(tab){
+  invCurrentTab = tab;
+  document.querySelectorAll('.inv-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.inv-tab-panel').forEach(p => p.style.display = 'none');
+  document.getElementById('inv-panel-' + tab).style.display = '';
+  // 액션 버튼 변경
+  const actions = document.getElementById('inv-tab-actions');
+  if(tab === 'purchase'){
+    actions.innerHTML = '<button class="btn btn-primary btn-sm" onclick="openPurchaseModal(null)">＋ 매입 등록</button>';
+  } else if(tab === 'shipment'){
+    actions.innerHTML = '<button class="btn btn-primary btn-sm" onclick="openShipmentModal(null)">＋ 출고 등록</button>';
+  } else if(tab === 'recovery'){
+    actions.innerHTML = '<button class="btn btn-primary btn-sm" onclick="openRecoveryModal(null)">＋ 회수 등록</button>';
+  }
+  renderInventory();
 }
-function calcStock(item){const renting=getRentingQty(item.name);return{renting,stock:Math.max(0,(item.qty||0)-renting-(item.disposed||0))};}
+
 function renderInventory(){
-  const totalQty=INVENTORY.reduce((s,i)=>s+(i.qty||0),0);
-  const totalRenting=INVENTORY.reduce((s,i)=>s+getRentingQty(i.name),0);
-  const totalDisposed=INVENTORY.reduce((s,i)=>s+(i.disposed||0),0);
-  const totalStock=INVENTORY.reduce((s,i)=>s+calcStock(i).stock,0);
-  document.getElementById('inv-summary').innerHTML=`
-    <div style="background:#f0f9ff;border-radius:8px;padding:12px 16px"><div style="font-size:11px;color:#6b7280;margin-bottom:4px">총 매입 수량</div><div style="font-size:22px;font-weight:700;color:var(--blue)">${totalQty}<span style="font-size:13px;font-weight:400;margin-left:3px">대</span></div></div>
-    <div style="background:#f0fdf4;border-radius:8px;padding:12px 16px"><div style="font-size:11px;color:#6b7280;margin-bottom:4px">임대중</div><div style="font-size:22px;font-weight:700;color:#16a34a">${totalRenting}<span style="font-size:13px;font-weight:400;margin-left:3px">대</span></div></div>
-    <div style="background:#fef9c3;border-radius:8px;padding:12px 16px"><div style="font-size:11px;color:#6b7280;margin-bottom:4px">중고·폐기</div><div style="font-size:22px;font-weight:700;color:#b45309">${totalDisposed}<span style="font-size:13px;font-weight:400;margin-left:3px">대</span></div></div>
-    <div style="background:${totalStock<0?'#fef2f2':'#f8fafc'};border-radius:8px;padding:12px 16px"><div style="font-size:11px;color:#6b7280;margin-bottom:4px">재고</div><div style="font-size:22px;font-weight:700;color:${totalStock<0?'#dc2626':'var(--text)'}">${totalStock}<span style="font-size:13px;font-weight:400;margin-left:3px">대</span></div></div>`;
-  if(!INVENTORY.length){document.getElementById('inv-body').innerHTML=`<tr><td colspan="10"><div class="empty"><div class="empty-icon">🖨️</div>등록된 장비가 없습니다</div></td></tr>`;return;}
-  document.getElementById('inv-body').innerHTML=INVENTORY.map(item=>{
-    const {renting,stock}=calcStock(item);
-    const stockColor=stock<0?'color:#dc2626;font-weight:700':'font-weight:600';
-    const stockBadge=stock<0?`<span style="font-size:10px;background:#fee2e2;color:#dc2626;padding:1px 5px;border-radius:3px">부족</span> `:'';
-    return `<tr><td style="font-weight:700">${esc(item.name)}</td><td style="text-align:center">${item.qty||0}대</td><td style="text-align:center"><span class="badge b-cms">${renting}대</span></td><td style="text-align:center;color:#b45309;font-weight:600">${item.disposed||0}대</td><td style="text-align:center;${stockColor}">${stockBadge}${stock}대</td><td style="text-align:right">${item.price?(item.price).toLocaleString()+'원':'-'}</td><td style="font-size:12px;color:var(--text3)">${item.buydate||'-'}</td><td style="font-size:12px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.vendor||'-')}</td><td style="font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3)" title="${esc(item.supplies||'')}">${esc(item.supplies||'-')}</td><td><div class="tbl-action"><button class="btn btn-xs btn-ghost" onclick="openInvModal(${item.id})">수정</button><button class="btn btn-xs btn-danger" onclick="confirmDeleteInv(${item.id})">삭제</button></div></td></tr>`;
-  }).join('');
+  refreshInvSuggestions();
+  renderInvSummary();
+  if(invCurrentTab === 'purchase') renderPurchaseTab();
+  else if(invCurrentTab === 'shipment') renderShipmentTab();
+  else if(invCurrentTab === 'recovery') renderRecoveryTab();
+  // 페이지 진입 시 액션 버튼 첫 세팅
+  const actions = document.getElementById('inv-tab-actions');
+  if(actions && !actions.innerHTML.trim()){
+    actions.innerHTML = '<button class="btn btn-primary btn-sm" onclick="openPurchaseModal(null)">＋ 매입 등록</button>';
+  }
 }
-function openInvModal(id){
-  invEditId=id;
-  const item=id?INVENTORY.find(x=>x.id===id):{};
-  document.getElementById('inv-modal-title').textContent=id?'장비 수정':'장비 등록';
-  document.getElementById('iv-name').value=item.name||'';
-  document.getElementById('iv-qty').value=item.qty||1;
-  document.getElementById('iv-disposed').value=item.disposed||0;
-  document.getElementById('iv-price').value=item.price||'';
-  document.getElementById('iv-buydate').value=item.buydate||today();
-  document.getElementById('iv-vendor').value=item.vendor||'';
-  document.getElementById('iv-supplies').value=item.supplies||'';
-  document.getElementById('iv-memo').value=item.memo||'';
-  openModal('inv-modal');
+
+// 자동완성 후보 갱신 (기기명, 매입거래처)
+function refreshInvSuggestions(){
+  const devs = new Set();
+  const vendors = new Set();
+  PURCHASES.forEach(p => { if(p.device) devs.add(p.device); if(p.vendor) vendors.add(p.vendor); });
+  SHIPMENTS.forEach(s => { if(s.device) devs.add(s.device); if(s.vendor) vendors.add(s.vendor); });
+  RECOVERIES.forEach(r => { if(r.device) devs.add(r.device); });
+  // 기본 매입거래처 후보
+  ['이디네트웍스','미르온','그린플러스','회수/중고'].forEach(v => vendors.add(v));
+  const devDL = document.getElementById('dev-suggest');
+  const venDL = document.getElementById('vendor-suggest');
+  if(devDL) devDL.innerHTML = Array.from(devs).sort().map(d => `<option value="${esc(d)}">`).join('');
+  if(venDL) venDL.innerHTML = Array.from(vendors).sort().map(v => `<option value="${esc(v)}">`).join('');
 }
-function saveInv(){
-  const name=document.getElementById('iv-name').value.trim();
-  if(!name){alert('기기명을 입력해주세요.');return;}
-  const data={name,qty:parseInt(document.getElementById('iv-qty').value)||0,disposed:parseInt(document.getElementById('iv-disposed').value)||0,price:parseInt(document.getElementById('iv-price').value)||0,buydate:document.getElementById('iv-buydate').value,vendor:document.getElementById('iv-vendor').value.trim(),supplies:document.getElementById('iv-supplies').value.trim(),memo:document.getElementById('iv-memo').value.trim()};
-  if(invEditId){const idx=INVENTORY.findIndex(x=>x.id===invEditId);if(idx>-1)INVENTORY[idx]={...INVENTORY[idx],...data};}
-  else{INVENTORY.push({id:getInvId(),...data});}
-  closeModal('inv-modal'); renderInventory(); autoSave();
+
+// 요약 박스
+function renderInvSummary(){
+  const totalPurchaseQty = PURCHASES.reduce((s,p) => s + (parseInt(p.qty)||0), 0);
+  const totalPurchaseSum = PURCHASES.reduce((s,p) => s + (parseInt(p.qty)||0) * (parseInt(p.price)||0), 0);
+  const totalShipQty = SHIPMENTS.reduce((s,p) => s + (parseInt(p.qty)||0), 0);
+  const totalRecoverQty = RECOVERIES.reduce((s,p) => s + (parseInt(p.qty)||0), 0);
+  const totalStock = totalPurchaseQty - totalShipQty;
+  document.getElementById('inv-summary').innerHTML = `
+    <div style="background:#f0f9ff;border-radius:8px;padding:12px 16px"><div style="font-size:11px;color:#6b7280;margin-bottom:4px">총 매입 수량</div><div style="font-size:22px;font-weight:700;color:var(--blue)">${totalPurchaseQty}<span style="font-size:13px;font-weight:400;margin-left:3px">대</span></div></div>
+    <div style="background:#f0fdf4;border-radius:8px;padding:12px 16px"><div style="font-size:11px;color:#6b7280;margin-bottom:4px">총 출고 수량</div><div style="font-size:22px;font-weight:700;color:#16a34a">${totalShipQty}<span style="font-size:13px;font-weight:400;margin-left:3px">대</span></div></div>
+    <div style="background:#fef9c3;border-radius:8px;padding:12px 16px"><div style="font-size:11px;color:#6b7280;margin-bottom:4px">회수/중고</div><div style="font-size:22px;font-weight:700;color:#b45309">${totalRecoverQty}<span style="font-size:13px;font-weight:400;margin-left:3px">대</span></div></div>
+    <div style="background:${totalStock<0?'#fef2f2':'#f8fafc'};border-radius:8px;padding:12px 16px"><div style="font-size:11px;color:#6b7280;margin-bottom:4px">재고 수량</div><div style="font-size:22px;font-weight:700;color:${totalStock<0?'#dc2626':'var(--text)'}">${totalStock}<span style="font-size:13px;font-weight:400;margin-left:3px">대</span></div></div>
+    <div style="background:#fff7ed;border-radius:8px;padding:12px 16px;grid-column:span 2"><div style="font-size:11px;color:#6b7280;margin-bottom:4px">총 매입가 합계</div><div style="font-size:22px;font-weight:700;color:#ea580c">${totalPurchaseSum.toLocaleString()}<span style="font-size:13px;font-weight:400;margin-left:3px">원</span></div></div>`;
 }
-function confirmDeleteInv(id){
-  if(!confirm('이 장비를 삭제하시겠습니까?')) return;
-  INVENTORY=INVENTORY.filter(x=>x.id!==id); renderInventory(); autoSave();
+
+// 매입 현황: 기기별 그룹 + 그 안에 매입거래처별 행 + 회수/중고 자동 합산 행
+function renderPurchaseTab(){
+  const tbody = document.getElementById('purchase-body');
+  // 모든 기기 목록 (매입 + 회수에서 합산)
+  const allDevices = new Set();
+  PURCHASES.forEach(p => { if(p.device) allDevices.add(p.device); });
+  RECOVERIES.forEach(r => { if(r.device) allDevices.add(r.device); });
+
+  if(!allDevices.size){
+    tbody.innerHTML = '<tr><td colspan="10"><div class="empty"><div class="empty-icon">📥</div>등록된 매입이 없습니다</div></td></tr>';
+    return;
+  }
+  // 기기별 그룹화 (매입만)
+  const groups = {};
+  PURCHASES.forEach(p => {
+    const k = p.device || '(미지정)';
+    if(!groups[k]) groups[k] = [];
+    groups[k].push(p);
+  });
+  // 회수 집계 (기기별)
+  const recoveryByDevice = {};
+  RECOVERIES.forEach(r => {
+    const k = r.device || '(미지정)';
+    if(!recoveryByDevice[k]) recoveryByDevice[k] = {qty:0, latestDate:'', count:0, totalPrice:0};
+    recoveryByDevice[k].qty += parseInt(r.qty)||0;
+    if((r.date||'') > recoveryByDevice[k].latestDate) recoveryByDevice[k].latestDate = r.date||'';
+    recoveryByDevice[k].count++;
+    // 회수 단가가 있으면 합계에 반영
+    recoveryByDevice[k].totalPrice += (parseInt(r.qty)||0) * (parseInt(r.price)||0);
+  });
+
+  const deviceNames = Array.from(allDevices).sort();
+  const rows = [];
+  deviceNames.forEach(dev => {
+    rows.push(`<tr class="inv-dev-head"><td colspan="10">📌 ${esc(dev)}</td></tr>`);
+    let devPurchase = 0, devShip = 0, devTotalPrice = 0;
+
+    // 1) 일반 매입 행 (PURCHASES)
+    const purchases = groups[dev] || [];
+    purchases.forEach(p => {
+      // 이 매입 행(device+vendor+date)에 매칭되는 출고만 합산
+      // 단, 옛 데이터(purchase_date 없는 출고)는 같은 device+vendor의 가장 오래된 매입에 귀속
+      const matchedShipments = SHIPMENTS.filter(s => {
+        if(s.device !== p.device || s.vendor !== p.vendor) return false;
+        if(s.purchase_date){
+          return s.purchase_date === (p.date || '');
+        } else {
+          // purchase_date 없는 옛 데이터: 같은 거래처의 가장 오래된 매입에만 귀속
+          const oldest = PURCHASES
+            .filter(x => x.device === p.device && x.vendor === p.vendor)
+            .sort((a,b) => (a.date||'').localeCompare(b.date||''))[0];
+          return oldest && oldest.id === p.id;
+        }
+      });
+      const shipped = matchedShipments.reduce((s, x) => s + (parseInt(x.qty)||0), 0);
+      const stock = (parseInt(p.qty)||0) - shipped;
+      const total = (parseInt(p.qty)||0) * (parseInt(p.price)||0);
+      const stockColor = stock < 0 ? 'color:#dc2626;font-weight:700' : 'font-weight:600;color:#15803d';
+      devPurchase += parseInt(p.qty)||0;
+      devShip += shipped;
+      devTotalPrice += total;
+      rows.push(`<tr>
+        <td></td>
+        <td style="padding-left:18px;color:#374151">${esc(p.vendor||'-')}</td>
+        <td style="text-align:center;font-weight:600">${p.qty||0}</td>
+        <td style="text-align:center;color:#6b7280">${shipped}</td>
+        <td style="text-align:center;${stockColor}">${stock}</td>
+        <td style="text-align:right">${(parseInt(p.price)||0).toLocaleString()}원</td>
+        <td style="text-align:right;color:#dc2626;font-weight:600">${total.toLocaleString()}원</td>
+        <td style="font-size:12px;color:#6b7280">${esc(p.date||'-')}</td>
+        <td style="font-size:12px;color:#6b7280;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.supply||'')}">${esc(p.supply||'-')}</td>
+        <td><div class="tbl-action"><button class="btn btn-xs btn-ghost" onclick="openPurchaseModal(${p.id})">수정</button></div></td>
+      </tr>`);
+    });
+
+    // 2) 회수/중고 자동 행 (이 기기에 회수가 있으면)
+    const rec = recoveryByDevice[dev];
+    if(rec && rec.qty > 0){
+      // 회수/중고로부터의 출고 = vendor가 '회수/중고'인 출고 합
+      const recoveryShipped = SHIPMENTS
+        .filter(s => s.device === dev && s.vendor === '회수/중고')
+        .reduce((s, x) => s + (parseInt(x.qty)||0), 0);
+      const recoveryStock = rec.qty - recoveryShipped;
+      const stockColor = recoveryStock < 0 ? 'color:#dc2626;font-weight:700' : 'font-weight:600;color:#15803d';
+      devPurchase += rec.qty;
+      devShip += recoveryShipped;
+      devTotalPrice += rec.totalPrice;
+      const dateLabel = rec.count > 1 ? `최근 ${rec.latestDate}` : rec.latestDate;
+      const memoLabel = rec.count > 1 ? `회수 ${rec.count}건` : '회수 1건';
+      rows.push(`<tr style="background:#fef9c3" title="회수/중고 탭에서 상세 관리">
+        <td></td>
+        <td style="padding-left:18px;color:#92400e;font-weight:700;cursor:pointer" onclick="switchInvTab('recovery')">♻️ 회수/중고 <span style="font-size:10px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;margin-left:4px">자동</span></td>
+        <td style="text-align:center;font-weight:600">${rec.qty}</td>
+        <td style="text-align:center;color:#6b7280">${recoveryShipped}</td>
+        <td style="text-align:center;${stockColor}">${recoveryStock}</td>
+        <td style="text-align:right;color:#9ca3af">-</td>
+        <td style="text-align:right;color:#9ca3af">${rec.totalPrice > 0 ? rec.totalPrice.toLocaleString()+'원' : '-'}</td>
+        <td style="font-size:12px;color:#6b7280">${esc(dateLabel||'-')}</td>
+        <td style="font-size:12px;color:#92400e">${memoLabel}</td>
+        <td><div class="tbl-action"><button class="btn btn-xs btn-ghost" onclick="switchInvTab('recovery')">상세</button></div></td>
+      </tr>`);
+    }
+
+    // 3) 기기별 소계
+    const devStock = devPurchase - devShip;
+    rows.push(`<tr class="inv-dev-subtotal">
+      <td colspan="2" style="text-align:right">└ ${esc(dev)} 소계</td>
+      <td style="text-align:center">${devPurchase}</td>
+      <td style="text-align:center">${devShip}</td>
+      <td style="text-align:center;color:${devStock<0?'#dc2626':'#15803d'};font-weight:700">${devStock}</td>
+      <td></td>
+      <td style="text-align:right;color:#dc2626">${devTotalPrice.toLocaleString()}원</td>
+      <td colspan="3"></td>
+    </tr>`);
+  });
+  tbody.innerHTML = rows.join('');
+}
+
+// 출고 현황 (날짜순)
+function renderShipmentTab(){
+  const tbody = document.getElementById('shipment-body');
+  if(!SHIPMENTS.length){
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">📤</div>등록된 출고가 없습니다</div></td></tr>';
+    return;
+  }
+  const sorted = SHIPMENTS.slice().sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  tbody.innerHTML = sorted.map(s => {
+    const pd = s.vendor === '회수/중고' ? '<span style="color:#92400e">회수/중고</span>' : esc(s.purchase_date||'-');
+    return `<tr>
+    <td style="font-size:12px">${esc(s.date||'-')}</td>
+    <td style="font-weight:600">${esc(s.device||'-')}</td>
+    <td style="color:#374151">${esc(s.vendor||'-')}</td>
+    <td style="font-size:12px;color:#6b7280">${pd}</td>
+    <td style="text-align:center;font-weight:600;color:#dc2626">${s.qty||0}</td>
+    <td style="font-size:12px;color:#6b7280">${esc(s.memo||'-')}</td>
+    <td><div class="tbl-action"><button class="btn btn-xs btn-ghost" onclick="openShipmentModal(${s.id})">수정</button></div></td>
+  </tr>`;}).join('');
+}
+
+// 회수/중고 현황 (날짜순)
+function renderRecoveryTab(){
+  const tbody = document.getElementById('recovery-body');
+  if(!RECOVERIES.length){
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty"><div class="empty-icon">♻️</div>등록된 회수/중고가 없습니다</div></td></tr>';
+    return;
+  }
+  const sorted = RECOVERIES.slice().sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  tbody.innerHTML = sorted.map(r => `<tr>
+    <td style="font-size:12px">${esc(r.date||'-')}</td>
+    <td style="font-weight:600">${esc(r.device||'-')}</td>
+    <td style="text-align:center;font-weight:600;color:#b45309">${r.qty||0}</td>
+    <td style="color:#374151">${esc(r.vendor||'-')}</td>
+    <td style="font-size:12px;color:#6b7280">${esc(r.memo||'-')}</td>
+    <td><div class="tbl-action"><button class="btn btn-xs btn-ghost" onclick="openRecoveryModal(${r.id})">수정</button></div></td>
+  </tr>`).join('');
+}
+
+// ── 매입 모달 ──
+function openPurchaseModal(id){
+  purchaseEditId = id;
+  const item = id ? PURCHASES.find(x => x.id === id) : {};
+  document.getElementById('pur-title').textContent = id ? '매입 수정' : '매입 등록';
+  document.getElementById('pur-device').value = item.device || '';
+  document.getElementById('pur-vendor').value = item.vendor || '';
+  document.getElementById('pur-qty').value = item.qty || 1;
+  document.getElementById('pur-price').value = item.price || 0;
+  document.getElementById('pur-date').value = item.date || today();
+  document.getElementById('pur-supply').value = item.supply || '';
+  document.getElementById('pur-memo').value = item.memo || '';
+  document.getElementById('pur-del-btn').style.display = id ? '' : 'none';
+  refreshInvSuggestions();
+  openModal('purchase-modal');
+}
+function savePurchase(){
+  const device = document.getElementById('pur-device').value.trim();
+  const vendor = document.getElementById('pur-vendor').value.trim();
+  const qty = parseInt(document.getElementById('pur-qty').value)||0;
+  const price = parseInt(document.getElementById('pur-price').value)||0;
+  const date = document.getElementById('pur-date').value;
+  const supply = document.getElementById('pur-supply').value.trim();
+  const memo = document.getElementById('pur-memo').value.trim();
+  if(!device || !vendor || !qty || !date){
+    alert('기기, 매입거래처, 매입수량, 매입일은 필수입니다.');
+    return;
+  }
+  if(purchaseEditId){
+    const idx = PURCHASES.findIndex(x => x.id === purchaseEditId);
+    if(idx >= 0) PURCHASES[idx] = {...PURCHASES[idx], device, vendor, qty, price, date, supply, memo};
+  } else {
+    PURCHASES.push({id: nextPurchaseId++, device, vendor, qty, price, date, supply, memo});
+  }
+  closeModal('purchase-modal');
+  renderInventory();
+  autoSave();
+}
+function deletePurchase(){
+  if(!purchaseEditId) return;
+  if(!confirm('이 매입 내역을 삭제하시겠습니까?')) return;
+  PURCHASES = PURCHASES.filter(x => x.id !== purchaseEditId);
+  closeModal('purchase-modal');
+  renderInventory();
+  autoSave();
+}
+
+// ── 출고 모달 ──
+// 기기/거래처 입력 시 매입일 셀렉터 자동 갱신
+function onShipDeviceVendorChange(){
+  const device = document.getElementById('ship-device').value.trim();
+  const vendor = document.getElementById('ship-vendor').value.trim();
+  const sel = document.getElementById('ship-purchase-date');
+  const currentVal = sel.value;
+  if(!device || !vendor){
+    sel.innerHTML = '<option value="">-- 기기·거래처 입력 후 선택 가능 --</option>';
+    return;
+  }
+  // 회수/중고는 매입일 구분 없음
+  if(vendor === '회수/중고'){
+    sel.innerHTML = '<option value="회수/중고">회수/중고 (매입일 구분 없음)</option>';
+    sel.value = '회수/중고';
+    return;
+  }
+  // 해당 기기·거래처의 매입 행 찾기
+  const purchases = PURCHASES
+    .filter(p => p.device === device && p.vendor === vendor)
+    .sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  if(!purchases.length){
+    sel.innerHTML = '<option value="">⚠️ 매입 내역 없음 - 매입 먼저 등록 필요</option>';
+    return;
+  }
+  const latestIdx = purchases.length - 1;
+  const opts = purchases.map((p, i) => {
+    const shipped = SHIPMENTS
+      .filter(s => s.id !== shipmentEditId && s.device === device && s.vendor === vendor && (s.purchase_date||'') === (p.date||''))
+      .reduce((s, x) => s + (parseInt(x.qty)||0), 0);
+    const stock = (parseInt(p.qty)||0) - shipped;
+    const tag = i === 0 ? ' [최초]' : (i === latestIdx ? ' [최근]' : '');
+    const stockTag = stock <= 0 ? ` (재고 ${stock}, 출고 불가)` : ` (매입 ${p.qty}대, 재고 ${stock}대)`;
+    const disabled = stock <= 0 ? ' disabled' : '';
+    return `<option value="${esc(p.date||'')}"${disabled}>${esc(p.date||'-')}${stockTag}${tag}</option>`;
+  });
+  sel.innerHTML = '<option value="">-- 매입일 선택 --</option>' + opts.join('');
+  // 이전 선택값 복원 또는 단일 매입이면 자동 선택
+  if(currentVal && purchases.some(p => p.date === currentVal)){
+    sel.value = currentVal;
+  } else if(purchases.length === 1 && (parseInt(purchases[0].qty)||0) > 0){
+    sel.value = purchases[0].date || '';
+  }
+}
+
+function openShipmentModal(id){
+  shipmentEditId = id;
+  const item = id ? SHIPMENTS.find(x => x.id === id) : {};
+  document.getElementById('ship-title').textContent = id ? '출고 수정' : '출고 등록';
+  document.getElementById('ship-device').value = item.device || '';
+  document.getElementById('ship-vendor').value = item.vendor || '';
+  document.getElementById('ship-qty').value = item.qty || 1;
+  document.getElementById('ship-date').value = item.date || today();
+  document.getElementById('ship-memo').value = item.memo || '';
+  document.getElementById('ship-del-btn').style.display = id ? '' : 'none';
+  refreshInvSuggestions();
+  // 매입일 셀렉터 채우기 (저장된 값 우선)
+  onShipDeviceVendorChange();
+  if(item.purchase_date){
+    const sel = document.getElementById('ship-purchase-date');
+    if(Array.from(sel.options).some(o => o.value === item.purchase_date)){
+      sel.value = item.purchase_date;
+    }
+  }
+  openModal('shipment-modal');
+}
+function saveShipment(){
+  const device = document.getElementById('ship-device').value.trim();
+  const vendor = document.getElementById('ship-vendor').value.trim();
+  const purchaseDate = document.getElementById('ship-purchase-date').value;
+  const qty = parseInt(document.getElementById('ship-qty').value)||0;
+  const date = document.getElementById('ship-date').value;
+  const memo = document.getElementById('ship-memo').value.trim();
+  if(!device || !vendor || !qty || !date){
+    alert('기기, 매입거래처, 출고수량, 출고일은 필수입니다.');
+    return;
+  }
+  // 매입일 선택 검증 (회수/중고는 자동값으로 처리)
+  if(vendor !== '회수/중고' && !purchaseDate){
+    // 해당 기기·거래처의 매입 행이 있으면 매입일 선택 필수
+    const hasPurchase = PURCHASES.some(p => p.device === device && p.vendor === vendor);
+    if(hasPurchase){
+      alert('출고할 매입 행(매입일)을 선택해 주세요.\n같은 기기·거래처에 매입이 여러 건 있을 경우 어느 매입에서 차감할지 선택해야 합니다.');
+      return;
+    }
+    // 매입이 없는데 출고하려는 경우
+    if(!confirm('⚠️ 해당 기기·거래처의 매입 내역이 없습니다.\n그래도 출고를 등록하시겠습니까?')) return;
+  }
+  // 재고 확인 (회수/중고 제외)
+  if(vendor !== '회수/중고' && purchaseDate){
+    const matchedPurchase = PURCHASES.find(p => p.device === device && p.vendor === vendor && p.date === purchaseDate);
+    if(matchedPurchase){
+      const otherShipped = SHIPMENTS
+        .filter(s => s.id !== shipmentEditId && s.device === device && s.vendor === vendor && (s.purchase_date||'') === purchaseDate)
+        .reduce((s, x) => s + (parseInt(x.qty)||0), 0);
+      const stock = (parseInt(matchedPurchase.qty)||0) - otherShipped;
+      if(qty > stock){
+        if(!confirm(`⚠️ 출고수량(${qty}대)이 재고(${stock}대)보다 많습니다.\n그래도 진행하시겠습니까?`)) return;
+      }
+    }
+  }
+  if(shipmentEditId){
+    const idx = SHIPMENTS.findIndex(x => x.id === shipmentEditId);
+    if(idx >= 0) SHIPMENTS[idx] = {...SHIPMENTS[idx], device, vendor, purchase_date:purchaseDate, qty, date, memo};
+  } else {
+    SHIPMENTS.push({id: nextShipmentId++, device, vendor, purchase_date:purchaseDate, qty, date, memo});
+  }
+  closeModal('shipment-modal');
+  renderInventory();
+  autoSave();
+}
+function deleteShipment(){
+  if(!shipmentEditId) return;
+  if(!confirm('이 출고 내역을 삭제하시겠습니까?')) return;
+  SHIPMENTS = SHIPMENTS.filter(x => x.id !== shipmentEditId);
+  closeModal('shipment-modal');
+  renderInventory();
+  autoSave();
+}
+
+// ── 회수 모달 ──
+function openRecoveryModal(id){
+  recoveryEditId = id;
+  const item = id ? RECOVERIES.find(x => x.id === id) : {};
+  document.getElementById('rec-title').textContent = id ? '회수/중고 수정' : '회수/중고 등록';
+  document.getElementById('rec-device').value = item.device || '';
+  document.getElementById('rec-qty').value = item.qty || 1;
+  document.getElementById('rec-date').value = item.date || today();
+  document.getElementById('rec-vendor').value = item.vendor || '';
+  document.getElementById('rec-price').value = item.price || 0;
+  document.getElementById('rec-memo').value = item.memo || '';
+  document.getElementById('rec-del-btn').style.display = id ? '' : 'none';
+  refreshInvSuggestions();
+  openModal('recovery-modal');
+}
+function saveRecovery(){
+  const device = document.getElementById('rec-device').value.trim();
+  const qty = parseInt(document.getElementById('rec-qty').value)||0;
+  const date = document.getElementById('rec-date').value;
+  const vendor = document.getElementById('rec-vendor').value.trim();
+  const price = parseInt(document.getElementById('rec-price').value)||0;
+  const memo = document.getElementById('rec-memo').value.trim();
+  if(!device || !qty || !date){
+    alert('기기, 회수량, 회수일은 필수입니다.');
+    return;
+  }
+  if(recoveryEditId){
+    const idx = RECOVERIES.findIndex(x => x.id === recoveryEditId);
+    if(idx >= 0) RECOVERIES[idx] = {...RECOVERIES[idx], device, qty, date, vendor, price, memo};
+  } else {
+    RECOVERIES.push({id: nextRecoveryId++, device, qty, date, vendor, price, memo});
+  }
+  closeModal('recovery-modal');
+  renderInventory();
+  autoSave();
+}
+function deleteRecovery(){
+  if(!recoveryEditId) return;
+  if(!confirm('이 회수 내역을 삭제하시겠습니까?')) return;
+  RECOVERIES = RECOVERIES.filter(x => x.id !== recoveryEditId);
+  closeModal('recovery-modal');
+  renderInventory();
+  autoSave();
 }
 
 // ══ 소모품 보유현황 ══
@@ -4081,15 +4489,59 @@ function hidePayTip(){ payTipEl.style.display = 'none'; }
   <div class="card" style="margin-bottom:16px">
     <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
       <span class="card-title">🖨️ 장비 보유 현황</span>
-      <button class="btn btn-primary btn-sm" onclick="openInvModal(null)">＋ 장비 등록</button>
+      <div id="inv-tab-actions"></div>
     </div>
     <div id="inv-summary"></div>
-    <div class="tbl-wrap">
-      <table><thead><tr>
-        <th>기기명</th><th style="text-align:center">매입<br>수량</th><th style="text-align:center">임대중</th>
-        <th style="text-align:center">중고폐기</th><th style="text-align:center">재고</th>
-        <th style="text-align:right">매입단가</th><th>매입일</th><th>매입거래처</th><th>소모품</th><th>관리</th>
-      </tr></thead><tbody id="inv-body"></tbody></table>
+
+    <!-- 탭 -->
+    <div class="inv-tabs">
+      <div class="inv-tab active" data-tab="purchase" onclick="switchInvTab('purchase')">📥 매입 현황</div>
+      <div class="inv-tab" data-tab="shipment" onclick="switchInvTab('shipment')">📤 출고 현황</div>
+      <div class="inv-tab" data-tab="recovery" onclick="switchInvTab('recovery')">♻️ 회수/중고 현황</div>
+    </div>
+
+    <!-- 탭 내용: 매입 현황 -->
+    <div class="inv-tab-panel active" id="inv-panel-purchase">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>기기</th><th>매입거래처</th>
+            <th style="text-align:center">매입수량</th>
+            <th style="text-align:center">출고수량</th>
+            <th style="text-align:center">재고수량</th>
+            <th style="text-align:right">매입단가</th>
+            <th style="text-align:right">매입가합계</th>
+            <th>매입일</th><th>소모품</th><th>관리</th>
+          </tr></thead>
+          <tbody id="purchase-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 탭 내용: 출고 현황 -->
+    <div class="inv-tab-panel" id="inv-panel-shipment" style="display:none">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>출고일</th><th>기기</th><th>매입거래처</th><th>매입일</th>
+            <th style="text-align:center">출고수량</th><th>비고</th><th>관리</th>
+          </tr></thead>
+          <tbody id="shipment-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 탭 내용: 회수/중고 현황 -->
+    <div class="inv-tab-panel" id="inv-panel-recovery" style="display:none">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>회수일</th><th>기기</th>
+            <th style="text-align:center">회수량</th><th>회수거래처</th><th>비고</th><th>관리</th>
+          </tr></thead>
+          <tbody id="recovery-body"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -4117,6 +4569,85 @@ function hidePayTip(){ payTipEl.style.display = 'none'; }
   </div>
 </div>
 
+<!-- ══ MODAL: 매입 등록/수정 ══ -->
+<div class="modal-bg" id="purchase-modal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-head"><h3 id="pur-title">매입 등록</h3><button class="modal-close" onclick="closeModal('purchase-modal')">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group form-full"><label class="required">기기</label>
+          <input class="inp" id="pur-device" list="dev-suggest" placeholder="예) 리코 C2010, HP 2010" autocomplete="off"></div>
+        <div class="form-group form-full"><label class="required">매입거래처</label>
+          <input class="inp" id="pur-vendor" list="vendor-suggest" placeholder="예) 이디네트웍스, 미르온, 그린플러스, 회수/중고" autocomplete="off"></div>
+        <div class="form-group"><label class="required">매입수량</label><input class="inp" type="number" id="pur-qty" min="1" value="1"></div>
+        <div class="form-group"><label class="required">매입단가 (원)</label><input class="inp" type="number" id="pur-price" min="0" value="0"></div>
+        <div class="form-group"><label class="required">매입일</label><input class="inp" type="date" id="pur-date"></div>
+        <div class="form-group"><label>소모품</label><input class="inp" id="pur-supply" placeholder="예) 리코토너 SP-C"></div>
+        <div class="form-group form-full"><label>비고</label><input class="inp" id="pur-memo" placeholder="기타 메모"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger btn-sm" id="pur-del-btn" onclick="deletePurchase()" style="display:none">삭제</button>
+      <button class="btn btn-ghost" onclick="closeModal('purchase-modal')">취소</button>
+      <button class="btn btn-primary" onclick="savePurchase()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: 출고 등록/수정 ══ -->
+<div class="modal-bg" id="shipment-modal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-head"><h3 id="ship-title">출고 등록</h3><button class="modal-close" onclick="closeModal('shipment-modal')">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group form-full"><label class="required">기기</label>
+          <input class="inp" id="ship-device" list="dev-suggest" placeholder="예) 리코 C2010" autocomplete="off" oninput="onShipDeviceVendorChange()"></div>
+        <div class="form-group form-full"><label class="required">매입거래처</label>
+          <input class="inp" id="ship-vendor" list="vendor-suggest" placeholder="어느 매입 재고에서 출고하는지" autocomplete="off" oninput="onShipDeviceVendorChange()"></div>
+        <div class="form-group form-full"><label class="required">매입일 <span style="font-size:10px;color:#9ca3af">(출고할 재고 선택)</span></label>
+          <select class="inp" id="ship-purchase-date"><option value="">-- 기기·거래처 입력 후 선택 가능 --</option></select></div>
+        <div class="form-group"><label class="required">출고수량</label><input class="inp" type="number" id="ship-qty" min="1" value="1"></div>
+        <div class="form-group"><label class="required">출고일</label><input class="inp" type="date" id="ship-date"></div>
+        <div class="form-group form-full"><label>비고</label><input class="inp" id="ship-memo" placeholder="예) 거래처명, 출고 사유"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger btn-sm" id="ship-del-btn" onclick="deleteShipment()" style="display:none">삭제</button>
+      <button class="btn btn-ghost" onclick="closeModal('shipment-modal')">취소</button>
+      <button class="btn btn-primary" onclick="saveShipment()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: 회수/중고 등록/수정 ══ -->
+<div class="modal-bg" id="recovery-modal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-head"><h3 id="rec-title">회수/중고 등록</h3><button class="modal-close" onclick="closeModal('recovery-modal')">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group form-full"><label class="required">기기</label>
+          <input class="inp" id="rec-device" list="dev-suggest" placeholder="예) 리코 C2010" autocomplete="off"></div>
+        <div class="form-group"><label class="required">회수량</label><input class="inp" type="number" id="rec-qty" min="1" value="1"></div>
+        <div class="form-group"><label class="required">회수일</label><input class="inp" type="date" id="rec-date"></div>
+        <div class="form-group form-full"><label>회수거래처</label>
+          <input class="inp" id="rec-vendor" placeholder="예) (주)롯데손해보험 여의도점"></div>
+        <div class="form-group"><label>중고 매입단가 (원) <span style="font-size:10px;color:#9ca3af">선택</span></label>
+          <input class="inp" type="number" id="rec-price" min="0" value="0" placeholder="0"></div>
+        <div class="form-group form-full"><label>비고</label><input class="inp" id="rec-memo" placeholder="회수 사유 등"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger btn-sm" id="rec-del-btn" onclick="deleteRecovery()" style="display:none">삭제</button>
+      <button class="btn btn-ghost" onclick="closeModal('recovery-modal')">취소</button>
+      <button class="btn btn-primary" onclick="saveRecovery()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 자동완성 후보 datalist -->
+<datalist id="dev-suggest"></datalist>
+<datalist id="vendor-suggest"></datalist>
+
 <!-- MODAL: 소모품 등록/수정 -->
 <div class="modal-bg" id="supply-modal">
   <div class="modal" style="max-width:500px">
@@ -4140,25 +4671,6 @@ function hidePayTip(){ payTipEl.style.display = 'none'; }
 </div>
 
 <!-- MODAL: 장비 등록/수정 -->
-<div class="modal-bg" id="inv-modal">
-  <div class="modal" style="max-width:540px">
-    <div class="modal-head"><h3 id="inv-modal-title">장비 등록</h3><button class="modal-close" onclick="closeModal('inv-modal')">×</button></div>
-    <div class="modal-body">
-      <div class="form-grid">
-        <div class="form-group form-full"><label class="required">기기명</label><input class="inp" id="iv-name" placeholder="예) HP8600"></div>
-        <div class="form-group"><label class="required">매입 수량</label><input class="inp" type="number" id="iv-qty" min="1" value="1"></div>
-        <div class="form-group"><label>중고폐기 수량</label><input class="inp" type="number" id="iv-disposed" min="0" value="0"></div>
-        <div class="form-group"><label>매입단가 (원)</label><input class="inp" type="number" id="iv-price" placeholder="0"></div>
-        <div class="form-group"><label>매입일</label><input class="inp" type="date" id="iv-buydate"></div>
-        <div class="form-group form-full"><label>매입거래처</label><input class="inp" id="iv-vendor" placeholder="예) 삼성전자"></div>
-        <div class="form-group form-full"><label>소모품</label><input class="inp" id="iv-supplies" placeholder="예) 토너 CE285A"></div>
-        <div class="form-group form-full"><label>비고</label><textarea class="inp" id="iv-memo" rows="2"></textarea></div>
-      </div>
-    </div>
-    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal('inv-modal')">취소</button><button class="btn btn-primary" onclick="saveInv()">저장</button></div>
-  </div>
-</div>
-
 <!-- MODAL: 렌탈금 메모 -->
 <div class="modal-bg" id="rent-memo-modal">
   <div class="modal" style="max-width:520px">
