@@ -320,7 +320,25 @@ tbody td{padding:13px 12px;vertical-align:middle}
 }
 #pay-tip{position:fixed;z-index:9999;background:#1e293b;color:#f1f5f9;border-radius:7px;padding:9px 13px;font-size:12px;line-height:1.7;pointer-events:none;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.25);display:none}
 
-/* ══ 입금 셀 세로 드래그 복사 ══ */
+/* ══ 리치 텍스트 에디터 (렌탈금 메모 / 거래처 메모) ══ */
+.rich-toolbar{display:flex;gap:3px;flex-wrap:wrap;padding:6px;background:#f9fafb;border:1px solid #d1d5db;border-bottom:none;border-radius:6px 6px 0 0;align-items:center}
+.rt-btn{height:26px;min-width:26px;padding:0 7px;background:#fff;border:1px solid #d1d5db;border-radius:4px;font-size:12px;cursor:pointer;color:#374151;font-family:inherit}
+.rt-btn:hover{background:#f3f4f6}
+.rt-btn:active,.rt-btn.active{background:#dbeafe;border-color:#60a5fa;color:#1e40af}
+.rt-sep{width:1px;height:18px;background:#d1d5db;margin:0 2px;align-self:center}
+.rt-size{height:26px;padding:0 4px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;background:#fff;font-family:inherit;cursor:pointer}
+.rt-swatches{display:inline-flex;gap:3px;align-items:center}
+.rt-sw{width:20px;height:20px;border-radius:3px;cursor:pointer;border:1px solid rgba(0,0,0,.15);transition:transform .1s}
+.rt-sw:hover{transform:scale(1.15)}
+.rich-editor{min-height:100px;width:100%;max-width:none;min-width:260px;border:1px solid #d1d5db;border-radius:0 0 6px 6px;padding:10px 12px;font-size:13px;line-height:1.6;font-family:inherit;outline:none;resize:both;overflow:auto;background:#fff;white-space:pre-wrap;word-break:break-word;box-sizing:border-box}
+.rich-editor:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.1)}
+.rich-editor:empty:before{content:attr(data-placeholder);color:#9ca3af;pointer-events:none}
+/* 리치 에디터 모달: 에디터 크기에 따라 모달이 자동 확장됨 */
+.modal-bg#rent-memo-modal .modal,
+.modal-bg#contract-memo-modal .modal{max-width:none!important;width:auto;max-height:90vh;overflow:auto}
+.modal-bg#rent-memo-modal .form-group,
+.modal-bg#contract-memo-modal .form-group{display:inline-block;min-width:520px}
+/* 메모 아이콘 hover 시 보이는 툴팁/title 속성은 HTML 그대로 표시되지 않으므로 별도 처리 필요 */
 td.pay-cell.pay-drag-source{outline:2px solid #2563eb;outline-offset:-2px;background:#dbeafe!important}
 td.pay-cell.pay-drag-target{outline:2px dashed #60a5fa;outline-offset:-2px;background:#eff6ff!important}
 .autocmp-wrap{position:relative}
@@ -647,6 +665,7 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
     <div class="controls">
       <input class="inp inp-search" type="text" id="pay-srch" placeholder="🔍 거래처명 검색...">
       <button class="btn btn-ghost btn-sm" onclick="clearPaySrch()" style="font-size:11px;color:#7c3aed;border-color:#c4b5fd;white-space:nowrap">✕ 초기화</button>
+      <input class="inp" type="text" id="pay-day" placeholder="납부일 (예: 15, 말)" style="width:140px" title="계약의 납부일자(payment_day)로 필터. 예: 15 → 매월 15일 납부 계약만">
       <label style="font-size:12px;color:var(--text3);white-space:nowrap">시작</label>
       <input class="inp" type="month" id="pay-from" style="width:130px">
       <label style="font-size:12px;color:var(--text3)">~</label>
@@ -2246,9 +2265,11 @@ function renderList(){
     const rentColor=c.tax==='유'?'color:#dc2626;font-weight:700':'font-weight:600';
     const cmsBadgeCls=c.cms==='CMS'?'b-cms':c.cms==='카드'?'b-purple':'b-cash';
     const rentMemo=c.rent_memo||'';
-    const rentMemoIcon=rentMemo?`<span style="margin-left:4px;font-size:10px;background:#fef9c3;color:#854d0e;padding:1px 5px;border-radius:3px;font-weight:600;cursor:pointer" title="${esc(rentMemo)}">메모</span>`:'';
+    const rentMemoPlain = stripHtmlTags(rentMemo);
+    const rentMemoIcon=rentMemo?`<span style="margin-left:4px;font-size:10px;background:#fef9c3;color:#854d0e;padding:1px 5px;border-radius:3px;font-weight:600;cursor:pointer" title="${esc(rentMemoPlain)}">메모</span>`:'';
     const contractMemo=c.contract_memo||'';
-    const contractMemoIcon=contractMemo?`<span style="margin-left:4px;font-size:10px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:3px;font-weight:600;cursor:pointer" title="${esc(contractMemo)}">메모</span>`:'';
+    const contractMemoPlain = stripHtmlTags(contractMemo);
+    const contractMemoIcon=contractMemo?`<span style="margin-left:4px;font-size:10px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:3px;font-weight:600;cursor:pointer" title="${esc(contractMemoPlain)}">메모</span>`:'';
     return {c, ps, lp, rowStyle, statusBadge, nameBadge, rentColor, cmsBadgeCls, rentMemoIcon, contractMemoIcon};
   });
 
@@ -2861,6 +2882,7 @@ function renderPayment(){
   const fromVal=document.getElementById('pay-from').value;
   const toVal=document.getElementById('pay-to').value;
   const onlyMiss=document.getElementById('pay-status').value==='miss';
+  const payDayQ=(document.getElementById('pay-day')?.value||'').trim().toLowerCase();
   if(!fromVal||!toVal) return;
   const keys=[];
   let [fy,fm]=fromVal.split('-').map(Number);
@@ -2910,6 +2932,21 @@ function renderPayment(){
   }
   let list=CONTRACTS.filter(c=>{
     if(q&&!c.name.toLowerCase().includes(q)) return false;
+    // 납부일 필터 (payment_day로 매칭, 부분 문자열)
+    if(payDayQ){
+      const pd = (c.payment_day||'').toLowerCase();
+      if(!pd) return false;
+      // 숫자만 입력했으면 정확한 일자 매칭 (예: "15" → "매15일"에 매칭, "1"이 "11일"에 매칭 안되도록)
+      if(/^\d+$/.test(payDayQ)){
+        // payment_day에서 숫자 추출 → 정확히 같은 숫자인지 확인
+        const dayMatch = pd.match(/(\d+)/);
+        if(!dayMatch) return false;
+        if(dayMatch[1] !== payDayQ) return false;
+      } else {
+        // "말", "매말" 등 텍스트는 부분 문자열 매칭
+        if(!pd.includes(payDayQ)) return false;
+      }
+    }
     if(onlyMiss){const hasMiss=keys.some(k=>!c.payments[k]);if(!hasMiss) return false;}
     return !c.terminated;
   });
@@ -3290,14 +3327,18 @@ function openRentMemo(no){
   rentMemoNo=no;
   const c=CONTRACTS.find(x=>x.no===no); if(!c) return;
   document.getElementById('rm-title').textContent=`렌탈금 메모 — ${c.name}`;
-  document.getElementById('rm-memo').value=c.rent_memo||'';
+  setRichEditorValue('rm-memo', c.rent_memo||'');
   document.getElementById('rm-del-btn').style.display=c.rent_memo?'':'none';
   openModal('rent-memo-modal');
+  bindRichToolbar('rm-memo');
   setTimeout(()=>document.getElementById('rm-memo').focus(),200);
 }
 function saveRentMemo(del){
   const c=CONTRACTS.find(x=>x.no===rentMemoNo); if(!c) return;
-  if(del){delete c.rent_memo;} else{c.rent_memo=document.getElementById('rm-memo').value.trim();}
+  if(del){delete c.rent_memo;} else{
+    const html = getRichEditorValue('rm-memo');
+    if(html) c.rent_memo = html; else delete c.rent_memo;
+  }
   closeModal('rent-memo-modal'); applyFilters(); autoSave();
 }
 
@@ -3307,15 +3348,157 @@ function openContractMemo(no){
   contractMemoNo=no;
   const c=CONTRACTS.find(x=>x.no===no); if(!c) return;
   document.getElementById('cm-title').textContent=`거래처 메모 — ${c.name}`;
-  document.getElementById('cm-memo').value=c.contract_memo||'';
+  setRichEditorValue('cm-memo', c.contract_memo||'');
   document.getElementById('cm-del-btn').style.display=c.contract_memo?'':'none';
   openModal('contract-memo-modal');
+  bindRichToolbar('cm-memo');
   setTimeout(()=>document.getElementById('cm-memo').focus(),200);
 }
 function saveContractMemo(del){
   const c=CONTRACTS.find(x=>x.no===contractMemoNo); if(!c) return;
-  if(del){delete c.contract_memo;} else{c.contract_memo=document.getElementById('cm-memo').value.trim();}
+  if(del){delete c.contract_memo;} else{
+    const html = getRichEditorValue('cm-memo');
+    if(html) c.contract_memo = html; else delete c.contract_memo;
+  }
   closeModal('contract-memo-modal'); applyFilters(); autoSave();
+}
+
+// ══ 리치 텍스트 에디터 유틸 ══
+// 저장된 값(일반 텍스트 또는 HTML)을 에디터에 세팅
+function setRichEditorValue(id, value){
+  const el = document.getElementById(id);
+  if(!el) return;
+  if(!value){ el.innerHTML = ''; return; }
+  // HTML인지 일반 텍스트인지 판별 (간단히 < 태그 존재 여부)
+  if(/<[a-z][^>]*>/i.test(value)){
+    // HTML — 안전한 태그만 통과 (XSS 방지)
+    el.innerHTML = sanitizeMemoHtml(value);
+  } else {
+    // 일반 텍스트 — 줄바꿈을 <br>로 변환해서 보존
+    el.innerHTML = escapeHtml(value).replace(/\n/g, '<br>');
+  }
+}
+// 에디터에서 값 추출 (HTML)
+function getRichEditorValue(id){
+  const el = document.getElementById(id);
+  if(!el) return '';
+  let html = el.innerHTML.trim();
+  // 빈 에디터: <br>만 있거나 비어있으면 빈 문자열
+  if(!html || html === '<br>' || html === '<div><br></div>') return '';
+  return sanitizeMemoHtml(html);
+}
+// XSS 방지: 허용된 태그/속성만 통과
+function sanitizeMemoHtml(html){
+  // DOMParser로 안전하게 파싱
+  const doc = new DOMParser().parseFromString('<div>'+html+'</div>', 'text/html');
+  const root = doc.body.firstChild;
+  if(!root) return '';
+  const allowedTags = new Set(['SPAN','B','I','U','STRONG','EM','BR','DIV','P','FONT']);
+  const allowedStyleProps = new Set(['color','font-size','font-weight','font-style','text-decoration','background-color']);
+  function clean(node){
+    // 텍스트 노드는 그대로
+    if(node.nodeType === 3) return;
+    if(node.nodeType !== 1){ node.remove(); return; }
+    const tag = node.tagName;
+    if(!allowedTags.has(tag)){
+      // 허용 안 된 태그는 자식만 살리고 자기 자신은 풀어버리기
+      while(node.firstChild) node.parentNode.insertBefore(node.firstChild, node);
+      node.remove();
+      return;
+    }
+    // 속성 정리: style만 허용, 그 안에서도 안전한 속성만
+    const style = node.getAttribute('style');
+    // 모든 속성 제거
+    Array.from(node.attributes).forEach(a => node.removeAttribute(a.name));
+    if(style){
+      const cleanStyle = style.split(';').map(s=>s.trim()).filter(s=>{
+        const idx = s.indexOf(':');
+        if(idx < 0) return false;
+        const prop = s.slice(0, idx).trim().toLowerCase();
+        const val = s.slice(idx+1).trim().toLowerCase();
+        if(!allowedStyleProps.has(prop)) return false;
+        // url(), expression(), javascript: 차단
+        if(/url\s*\(|expression\s*\(|javascript:/.test(val)) return false;
+        return true;
+      }).join('; ');
+      if(cleanStyle) node.setAttribute('style', cleanStyle);
+    }
+    // 자식 재귀 처리
+    Array.from(node.childNodes).forEach(clean);
+  }
+  Array.from(root.childNodes).forEach(clean);
+  return root.innerHTML;
+}
+function escapeHtml(s){
+  return String(s||'').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+// HTML 태그를 제거하고 일반 텍스트만 반환 (메모 아이콘 hover title, 검색 등에 사용)
+function stripHtmlTags(html){
+  if(!html) return '';
+  // <br>은 줄바꿈으로 변환, 나머지 태그는 제거
+  const tmp = document.createElement('div');
+  tmp.innerHTML = String(html).replace(/<br\s*\/?>/gi, '\n').replace(/<\/(div|p)>/gi, '\n');
+  return (tmp.textContent || tmp.innerText || '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// 툴바 이벤트 바인딩 (열 때마다 호출되도 중복 안 됨)
+function bindRichToolbar(editorId){
+  const editor = document.getElementById(editorId);
+  if(!editor) return;
+  const toolbar = document.querySelector('.rich-toolbar[data-target="'+editorId+'"]');
+  if(!toolbar || toolbar.dataset.bound) {
+    // 이미 바인딩됐어도 selection을 기억하기 위한 이벤트는 매번 필요 없음
+    return;
+  }
+  toolbar.dataset.bound = '1';
+
+  // 선택 영역 저장 (툴바 클릭으로 포커스 잃지 않도록)
+  let savedRange = null;
+  function saveSelection(){
+    const sel = window.getSelection();
+    if(sel.rangeCount > 0){
+      const r = sel.getRangeAt(0);
+      // 에디터 안의 선택만 저장
+      if(editor.contains(r.commonAncestorContainer)){
+        savedRange = r.cloneRange();
+      }
+    }
+  }
+  function restoreSelection(){
+    if(savedRange){
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(savedRange);
+    }
+  }
+  editor.addEventListener('mouseup', saveSelection);
+  editor.addEventListener('keyup', saveSelection);
+  editor.addEventListener('blur', saveSelection);
+
+  // 일반 버튼들 (bold/italic/underline/removeFormat)
+  toolbar.querySelectorAll('.rt-btn').forEach(btn => {
+    btn.addEventListener('mousedown', e => e.preventDefault()); // 포커스 유지
+    btn.addEventListener('click', () => {
+      const cmd = btn.dataset.cmd;
+      if(!cmd) return;
+      editor.focus();
+      restoreSelection();
+      document.execCommand(cmd, false, null);
+      saveSelection();
+    });
+  });
+
+  // 색상 팔레트
+  toolbar.querySelectorAll('.rt-sw').forEach(sw => {
+    sw.addEventListener('mousedown', e => e.preventDefault());
+    sw.addEventListener('click', () => {
+      const color = sw.dataset.color;
+      editor.focus();
+      restoreSelection();
+      document.execCommand('foreColor', false, color);
+      saveSelection();
+    });
+  });
 }
 
 // ══ SERVICES → contract_memo 마이그레이션 (1회성) ══
@@ -3685,7 +3868,7 @@ function confirmDeleteSupply(id){
   // 값 설정 후 즉시 렌더
   setTimeout(renderPayment, 0);
 })();
-['pay-srch','pay-status'].forEach(id=>safeOn(id,id==='pay-srch'?'input':'change',renderPayment));
+['pay-srch','pay-status','pay-day'].forEach(id=>safeOn(id,(id==='pay-srch'||id==='pay-day')?'input':'change',renderPayment));
 ['pay-from','pay-to'].forEach(id=>safeOn(id,'change',renderPayment));
 
 // pm-year: number input (기존 select 대신)
@@ -3892,10 +4075,29 @@ function hidePayTip(){ payTipEl.style.display = 'none'; }
 
 <!-- MODAL: 렌탈금 메모 -->
 <div class="modal-bg" id="rent-memo-modal">
-  <div class="modal" style="max-width:400px">
+  <div class="modal" style="max-width:520px">
     <div class="modal-head"><h3 id="rm-title">렌탈금 메모</h3><button class="modal-close" onclick="closeModal('rent-memo-modal')">×</button></div>
     <div class="modal-body">
-      <div class="form-group"><label>메모 내용</label><textarea class="inp" id="rm-memo" rows="4" placeholder="렌탈금 관련 메모..."></textarea></div>
+      <div class="form-group">
+        <label>메모 내용</label>
+        <div class="rich-toolbar" data-target="rm-memo">
+          <button type="button" class="rt-btn" data-cmd="bold" title="굵게"><b>B</b></button>
+          <button type="button" class="rt-btn" data-cmd="italic" title="기울임"><i>I</i></button>
+          <button type="button" class="rt-btn" data-cmd="underline" title="밑줄"><u>U</u></button>
+          <span class="rt-sep"></span>
+          <span class="rt-swatches">
+            <span class="rt-sw" data-color="#1f2937" style="background:#1f2937" title="검정"></span>
+            <span class="rt-sw" data-color="#dc2626" style="background:#dc2626" title="빨강"></span>
+            <span class="rt-sw" data-color="#16a34a" style="background:#16a34a" title="초록"></span>
+            <span class="rt-sw" data-color="#2563eb" style="background:#2563eb" title="파랑"></span>
+            <span class="rt-sw" data-color="#ca8a04" style="background:#ca8a04" title="황색"></span>
+            <span class="rt-sw" data-color="#9333ea" style="background:#9333ea" title="보라"></span>
+          </span>
+          <span class="rt-sep"></span>
+          <button type="button" class="rt-btn" data-cmd="removeFormat" title="서식 지우기">✕</button>
+        </div>
+        <div class="rich-editor" id="rm-memo" contenteditable="true" data-placeholder="렌탈금 관련 메모..."></div>
+      </div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-danger btn-sm" id="rm-del-btn" onclick="saveRentMemo(true)">메모 삭제</button>
@@ -3907,10 +4109,29 @@ function hidePayTip(){ payTipEl.style.display = 'none'; }
 
 <!-- MODAL: 거래처 메모 -->
 <div class="modal-bg" id="contract-memo-modal">
-  <div class="modal" style="max-width:520px">
+  <div class="modal" style="max-width:600px">
     <div class="modal-head"><h3 id="cm-title">거래처 메모</h3><button class="modal-close" onclick="closeModal('contract-memo-modal')">×</button></div>
     <div class="modal-body">
-      <div class="form-group"><label>메모 내용</label><textarea class="inp" id="cm-memo" rows="12" placeholder="거래처 관련 메모 (방문·A/S 이력 등)..."></textarea></div>
+      <div class="form-group">
+        <label>메모 내용</label>
+        <div class="rich-toolbar" data-target="cm-memo">
+          <button type="button" class="rt-btn" data-cmd="bold" title="굵게"><b>B</b></button>
+          <button type="button" class="rt-btn" data-cmd="italic" title="기울임"><i>I</i></button>
+          <button type="button" class="rt-btn" data-cmd="underline" title="밑줄"><u>U</u></button>
+          <span class="rt-sep"></span>
+          <span class="rt-swatches">
+            <span class="rt-sw" data-color="#1f2937" style="background:#1f2937" title="검정"></span>
+            <span class="rt-sw" data-color="#dc2626" style="background:#dc2626" title="빨강"></span>
+            <span class="rt-sw" data-color="#16a34a" style="background:#16a34a" title="초록"></span>
+            <span class="rt-sw" data-color="#2563eb" style="background:#2563eb" title="파랑"></span>
+            <span class="rt-sw" data-color="#ca8a04" style="background:#ca8a04" title="황색"></span>
+            <span class="rt-sw" data-color="#9333ea" style="background:#9333ea" title="보라"></span>
+          </span>
+          <span class="rt-sep"></span>
+          <button type="button" class="rt-btn" data-cmd="removeFormat" title="서식 지우기">✕</button>
+        </div>
+        <div class="rich-editor" id="cm-memo" contenteditable="true" data-placeholder="거래처 관련 메모 (방문·A/S 이력 등)..." style="min-height:240px"></div>
+      </div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-danger btn-sm" id="cm-del-btn" onclick="saveContractMemo(true)">메모 삭제</button>
