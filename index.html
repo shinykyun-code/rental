@@ -1399,6 +1399,8 @@ async function dbxUploadCurrentData(options){
     _savedAt: new Date().toISOString()
   };
   if(typeof getAccounts === 'function') data.ACCOUNTS = getAccounts();
+  // 관리자 비밀번호도 함께 저장 (다른 PC에서 동기화되도록)
+  if(typeof ADMIN_PW === 'string' && ADMIN_PW) data.ADMIN_PW = ADMIN_PW;
   return await dbxUpload(data, options);
 }
 
@@ -1548,6 +1550,11 @@ function dbxApplyData(d){
     if(d.ACCOUNTS && typeof d.ACCOUNTS==='object' && !Array.isArray(d.ACCOUNTS) && Object.keys(d.ACCOUNTS).length){
       localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(d.ACCOUNTS));
       console.log('🔐 Dropbox에서 계정 정보 동기화:', Object.keys(d.ACCOUNTS));
+    }
+    // 관리자 비밀번호 동기화
+    if(typeof d.ADMIN_PW === 'string' && d.ADMIN_PW){
+      ADMIN_PW = d.ADMIN_PW;
+      console.log('🔐 Dropbox에서 관리자 비밀번호 동기화');
     }
   } finally {
     _suppressAutoSave = false;
@@ -1808,6 +1815,7 @@ function exportJSON(){
     PURCHASES, SHIPMENTS, RECOVERIES,
     nextNo, nextSvcId, nextExtraId, nextDocId, nextStaffId,
     nextPurchaseId, nextShipmentId, nextRecoveryId,
+    ADMIN_PW,
     exportDate: new Date().toISOString() };
   const json = JSON.stringify(payload, null, 2);
   const sizeMB = (json.length/1024/1024).toFixed(2);
@@ -1853,6 +1861,7 @@ function importJSON(){
         if(d.nextPurchaseId) nextPurchaseId = d.nextPurchaseId;
         if(d.nextShipmentId) nextShipmentId = d.nextShipmentId;
         if(d.nextRecoveryId) nextRecoveryId = d.nextRecoveryId;
+        if(typeof d.ADMIN_PW === 'string' && d.ADMIN_PW) ADMIN_PW = d.ADMIN_PW;
         // nextId 보정 (충돌 방지)
         {
           const _maxNo = CONTRACTS.reduce((m,c)=>Math.max(m, Number(c.no)||0), 0);
@@ -2685,15 +2694,36 @@ function adminLogout(){
   if(typeof renderList === 'function') renderList();
   showPage('list');
 }
-function changeAdminPw(){
+async function changeAdminPw(){
   const p1=document.getElementById('new-pw1').value;
   const p2=document.getElementById('new-pw2').value;
   const msg=document.getElementById('pw-change-msg');
   if(!p1){msg.style.display='block';msg.style.color='var(--red)';msg.textContent='새 비밀번호를 입력하세요.';return;}
   if(p1!==p2){msg.style.display='block';msg.style.color='var(--red)';msg.textContent='비밀번호가 일치하지 않습니다.';return;}
-  ADMIN_PW=p1; autoSave();
-	  msg.style.display='block';msg.style.color='var(--green)';msg.textContent='✅ 비밀번호가 변경되었습니다.';
-  document.getElementById('new-pw1').value='';document.getElementById('new-pw2').value='';
+  ADMIN_PW=p1;
+  document.getElementById('new-pw1').value='';
+  document.getElementById('new-pw2').value='';
+  // 즉시 Dropbox 업로드 (디바운싱 없이) - 다른 PC에 곧장 반영되도록
+  if(dbxIsConnected() && !_offlineMode){
+    msg.style.display='block';msg.style.color='#1e40af';msg.textContent='☁️ Dropbox에 저장 중...';
+    clearTimeout(_saveTimer);
+    const r = await dbxUploadCurrentData();
+    if(r && r.ok){
+      _hasUnsavedChanges = false;
+      _lastSyncTime = Date.now();
+      msg.style.display='block';msg.style.color='var(--green)';msg.textContent='✅ 비밀번호 변경 + Dropbox 저장 완료\n(다른 PC에서 새로고침하면 적용됩니다)';
+    } else if(r && r.conflict){
+      msg.style.display='block';msg.style.color='#dc2626';msg.textContent='⚠️ 저장 충돌이 있습니다. 다시 시도해 주세요.';
+      _hasUnsavedChanges = true;
+    } else {
+      msg.style.display='block';msg.style.color='#dc2626';msg.textContent='❌ Dropbox 저장 실패. 다시 시도해 주세요.';
+      _hasUnsavedChanges = true;
+    }
+  } else {
+    autoSave(); // 오프라인이면 로컬 메모리만, 백업으로 저장 필요
+    msg.style.display='block';msg.style.color='#f59e0b';
+    msg.textContent='⚠️ 비밀번호 변경됨 (Dropbox 미연결)\n💾 백업 버튼으로 .json 파일을 저장하세요.';
+  }
 }
 
 // ══ 해지 / 복원 ══
