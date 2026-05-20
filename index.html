@@ -465,13 +465,11 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
 <nav class="nav">
   <div class="nav-logo">📋 임대관리<span>시스템 v3</span></div>
   <div class="nav-tab active" onclick="showPage('list')">계약 목록</div>
-  <div class="nav-tab" onclick="showPage('register')">신규 등록</div>
-  <div class="nav-tab" onclick="showPage('payment')">입금 관리</div>
+  <div class="nav-tab" id="nav-register-tab" onclick="showPage('register')" style="display:none">신규 등록</div>
+  <div class="nav-tab" id="nav-payment-tab" onclick="showPage('payment')" style="display:none">입금 관리</div>
   <div class="nav-tab" onclick="showPage('docs')">📁 계약서류</div>
   <div class="nav-tab" id="nav-stats-tab" onclick="showPage('rentstats')" style="display:none">📊 임대통계</div>
-  <div class="nav-tab" id="nav-inventory-tab" onclick="showPage('inventory')" style="display:none">🖨️ 장비보유</div>
-  <div class="nav-tab" id="nav-stats-tab" onclick="showPage('rentstats')" style="display:none">📊 임대통계</div>
-  <div class="nav-tab" id="nav-inventory-tab" onclick="showPage('inventory')" style="display:none">🖨️ 장비보유</div>
+  <div class="nav-tab" id="nav-inventory-tab" onclick="showPage('inventory')">🖨️ 장비보유</div>
   <div style="flex:1"></div>
   <div style="display:flex;align-items:center;gap:8px">
     <span id="nav-admin-label" style="display:none;color:#bbdefb;font-size:12px;font-weight:600">🔓 관리자 모드</span>
@@ -515,7 +513,7 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
   <div class="card">
     <div class="card-header">
       <span class="card-title">계약 목록</span>
-      <button class="btn btn-primary" onclick="showPage('register')">＋ 신규 등록</button>
+      <button class="btn btn-primary" id="list-new-btn" onclick="showPage('register')" style="display:none">＋ 신규 등록</button>
     </div>
     <div class="controls" style="flex-direction:column;gap:0;padding:0">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)">
@@ -776,7 +774,7 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
       </div>
     </div>
     <div class="modal-foot" style="justify-content:center;gap:12px;padding:16px 22px">
-      <button class="btn btn-warning btn-sm dm-action-btn" onclick="editContract(currentNo)">✏️ 수정</button>
+      <button class="btn btn-warning btn-sm dm-action-btn" id="dm-edit-btn" onclick="editContract(currentNo)">✏️ 수정</button>
       <button class="btn btn-sm dm-action-btn" id="dm-terminate-btn" style="background:#7c3aed;color:#fff;border:none" onclick="confirmTerminate(currentNo)">🚫 해지</button>
       <button class="btn btn-danger btn-sm dm-action-btn" id="dm-delete-btn" onclick="confirmDeleteContract(currentNo)" style="display:none">🗑️ 삭제</button>
       <button class="btn btn-ghost" onclick="closeModal('detail-modal')">닫기</button>
@@ -1986,7 +1984,12 @@ function getStaffName(id){
 
 // ══ 네비게이션 ══
 function showPage(id){
-  if((id==='rentstats'||id==='inventory')&&!isAdmin){alert('관리자 권한이 필요합니다.');return;}
+  // 비관리자는 입금관리(payment), 통계(rentstats), 신규등록(register) 접근 불가
+  // 장비보유(inventory)는 비관리자도 접근 가능 (출고/회수만 등록 가능 - 모달 측에서 권한 검사)
+  if((id==='rentstats'||id==='payment'||id==='register')&&!isAdmin){
+    alert('관리자 권한이 필요합니다.');
+    return;
+  }
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
@@ -2426,7 +2429,9 @@ function openDetail(no){
     ['주소',c.address,'full'],
     ['비고', c.memo ? `<div style="white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.6;max-height:300px;overflow-y:auto;padding:8px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb">${esc(c.memo)}</div>` : '<span style="color:var(--text3)">-</span>','full']
   ].map(([l,v,f])=>`<div class="form-group${f?' form-full':''}"><label>${l}</label><p style="font-size:13px">${v||'-'}</p></div>`).join('');
-  // 해지/복원 버튼 관리자만
+  // 수정/해지/복원/삭제 버튼 모두 관리자만 표시
+  const editBtn=document.getElementById('dm-edit-btn');
+  if(editBtn) editBtn.style.display=isAdmin?'':'none';
   const delBtn=document.getElementById('dm-delete-btn');
   if(delBtn) delBtn.style.display=isAdmin?'':'none';
   const termBtn=document.getElementById('dm-terminate-btn');
@@ -2524,6 +2529,7 @@ function clearForm(){
   editingNo=null;
 }
 function editContract(no){
+  if(!isAdmin){ alert('관리자만 계약을 수정할 수 있습니다.'); return; }
   const c=CONTRACTS.find(x=>x.no===no);
   if(!c) return;
   editingNo=no;
@@ -2635,7 +2641,12 @@ function tryAdminLogin(){
     document.getElementById('stats-locked').style.display='none';
     document.getElementById('nav-stats-tab').style.display='flex';
     document.getElementById('nav-inventory-tab').style.display='flex';
+    document.getElementById('nav-register-tab').style.display='flex';
+    document.getElementById('nav-payment-tab').style.display='flex';
+    const newBtn = document.getElementById('list-new-btn');
+    if(newBtn) newBtn.style.display = '';
     updateStats();
+    if(typeof renderList === 'function') renderList();
     setTimeout(()=>{ if(window._colResize) window._colResize.loadWidths(); }, 200);
   } else {
     document.getElementById('admin-err').style.display='block';
@@ -2651,10 +2662,12 @@ function adminLogout(){
   document.getElementById('stats-wrap').style.display='none';
   document.getElementById('stats-locked').style.display='flex';
   document.getElementById('nav-stats-tab').style.display='none';
-  document.getElementById('nav-inventory-tab').style.display='none';
-  showPage('list');
-  document.getElementById('nav-stats-tab').style.display='none';
-  document.getElementById('nav-inventory-tab').style.display='none';
+  document.getElementById('nav-register-tab').style.display='none';
+  document.getElementById('nav-payment-tab').style.display='none';
+  const newBtn = document.getElementById('list-new-btn');
+  if(newBtn) newBtn.style.display = 'none';
+  // 장비보유는 비관리자도 접근 가능 → 숨기지 않음
+  if(typeof renderList === 'function') renderList();
   showPage('list');
 }
 function changeAdminPw(){
@@ -2728,6 +2741,7 @@ function openPayEdit(){
   openModal('pay-modal');
 }
 function openPayEditFor(no,key){
+  if(!isAdmin){ alert('관리자만 입금을 수정할 수 있습니다.'); return; }
   payEditNo=no;payEditKey=key;
   const c=CONTRACTS.find(x=>x.no===no);
   const val=c.payments[key];
@@ -2889,6 +2903,7 @@ function emBindAutoComplete(){
 }
 
 function openExtraPayAdd(no){
+  if(!isAdmin){ alert('관리자만 추가사용료를 등록할 수 있습니다.'); return; }
   editingExtraId=null;
   document.getElementById('em-title').textContent='추가사용료 등록';
   document.getElementById('em-date').value=today();
@@ -3425,12 +3440,33 @@ function initRegYearFilter(){
 function openRentMemo(no){
   rentMemoNo=no;
   const c=CONTRACTS.find(x=>x.no===no); if(!c) return;
-  document.getElementById('rm-title').textContent=`렌탈금 메모 — ${c.name}`;
+  document.getElementById('rm-title').textContent=`렌탈금 메모 — ${c.name}` + (!isAdmin ? ' (읽기 전용)' : '');
   setRichEditorValue('rm-memo', c.rent_memo||'');
-  document.getElementById('rm-del-btn').style.display=c.rent_memo?'':'none';
+  // 비관리자: 편집 불가 + 저장/삭제 버튼 숨김
+  const editor = document.getElementById('rm-memo');
+  const toolbar = document.querySelector('.rich-toolbar[data-target="rm-memo"]');
+  const delBtn = document.getElementById('rm-del-btn');
+  const saveBtn = document.querySelector('#rent-memo-modal .btn-primary');
+  if(!isAdmin){
+    editor.setAttribute('contenteditable', 'false');
+    editor.style.background = '#f9fafb';
+    editor.style.cursor = 'default';
+    if(toolbar) toolbar.style.display = 'none';
+    if(delBtn) delBtn.style.display = 'none';
+    if(saveBtn) saveBtn.style.display = 'none';
+  } else {
+    editor.setAttribute('contenteditable', 'true');
+    editor.style.background = '';
+    editor.style.cursor = '';
+    if(toolbar) toolbar.style.display = '';
+    if(delBtn) delBtn.style.display = c.rent_memo?'':'none';
+    if(saveBtn) saveBtn.style.display = '';
+  }
   openModal('rent-memo-modal');
-  bindRichToolbar('rm-memo');
-  setTimeout(()=>document.getElementById('rm-memo').focus(),200);
+  if(isAdmin){
+    bindRichToolbar('rm-memo');
+    setTimeout(()=>document.getElementById('rm-memo').focus(),200);
+  }
 }
 function saveRentMemo(del){
   const c=CONTRACTS.find(x=>x.no===rentMemoNo); if(!c) return;
@@ -3446,12 +3482,33 @@ let contractMemoNo=null;
 function openContractMemo(no){
   contractMemoNo=no;
   const c=CONTRACTS.find(x=>x.no===no); if(!c) return;
-  document.getElementById('cm-title').textContent=`거래처 메모 — ${c.name}`;
+  document.getElementById('cm-title').textContent=`거래처 메모 — ${c.name}` + (!isAdmin ? ' (읽기 전용)' : '');
   setRichEditorValue('cm-memo', c.contract_memo||'');
-  document.getElementById('cm-del-btn').style.display=c.contract_memo?'':'none';
+  // 비관리자: 편집 불가 + 저장/삭제 버튼 숨김
+  const editor = document.getElementById('cm-memo');
+  const toolbar = document.querySelector('.rich-toolbar[data-target="cm-memo"]');
+  const delBtn = document.getElementById('cm-del-btn');
+  const saveBtn = document.querySelector('#contract-memo-modal .btn-primary');
+  if(!isAdmin){
+    editor.setAttribute('contenteditable', 'false');
+    editor.style.background = '#f9fafb';
+    editor.style.cursor = 'default';
+    if(toolbar) toolbar.style.display = 'none';
+    if(delBtn) delBtn.style.display = 'none';
+    if(saveBtn) saveBtn.style.display = 'none';
+  } else {
+    editor.setAttribute('contenteditable', 'true');
+    editor.style.background = '';
+    editor.style.cursor = '';
+    if(toolbar) toolbar.style.display = '';
+    if(delBtn) delBtn.style.display = c.contract_memo?'':'none';
+    if(saveBtn) saveBtn.style.display = '';
+  }
   openModal('contract-memo-modal');
-  bindRichToolbar('cm-memo');
-  setTimeout(()=>document.getElementById('cm-memo').focus(),200);
+  if(isAdmin){
+    bindRichToolbar('cm-memo');
+    setTimeout(()=>document.getElementById('cm-memo').focus(),200);
+  }
 }
 function saveContractMemo(del){
   const c=CONTRACTS.find(x=>x.no===contractMemoNo); if(!c) return;
@@ -3854,10 +3911,10 @@ function switchInvTab(tab){
   document.querySelectorAll('.inv-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   document.querySelectorAll('.inv-tab-panel').forEach(p => p.style.display = 'none');
   document.getElementById('inv-panel-' + tab).style.display = '';
-  // 액션 버튼 변경
+  // 액션 버튼 변경 (매입은 관리자만, 출고/회수는 모두 가능)
   const actions = document.getElementById('inv-tab-actions');
   if(tab === 'purchase'){
-    actions.innerHTML = '<button class="btn btn-primary btn-sm" onclick="openPurchaseModal(null)">＋ 매입 등록</button>';
+    actions.innerHTML = isAdmin ? '<button class="btn btn-primary btn-sm" onclick="openPurchaseModal(null)">＋ 매입 등록</button>' : '<span style="font-size:11px;color:#9ca3af">매입 등록은 관리자만 가능</span>';
   } else if(tab === 'shipment'){
     actions.innerHTML = '<button class="btn btn-primary btn-sm" onclick="openShipmentModal(null)">＋ 출고 등록</button>';
   } else if(tab === 'recovery'){
@@ -3875,7 +3932,7 @@ function renderInventory(){
   // 페이지 진입 시 액션 버튼 첫 세팅
   const actions = document.getElementById('inv-tab-actions');
   if(actions && !actions.innerHTML.trim()){
-    actions.innerHTML = '<button class="btn btn-primary btn-sm" onclick="openPurchaseModal(null)">＋ 매입 등록</button>';
+    actions.innerHTML = isAdmin ? '<button class="btn btn-primary btn-sm" onclick="openPurchaseModal(null)">＋ 매입 등록</button>' : '<span style="font-size:11px;color:#9ca3af">매입 등록은 관리자만 가능</span>';
   }
 }
 
@@ -3980,7 +4037,7 @@ function renderPurchaseTab(){
         <td style="text-align:right;color:#dc2626;font-weight:600">${total.toLocaleString()}원</td>
         <td style="font-size:12px;color:#6b7280">${esc(p.date||'-')}</td>
         <td style="font-size:12px;color:#6b7280;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.supply||'')}">${esc(p.supply||'-')}</td>
-        <td><div class="tbl-action"><button class="btn btn-xs btn-ghost" onclick="openPurchaseModal(${p.id})">수정</button></div></td>
+        <td><div class="tbl-action">${isAdmin?`<button class="btn btn-xs btn-ghost" onclick="openPurchaseModal(${p.id})">수정</button>`:'<span style="color:#9ca3af;font-size:10px">읽기전용</span>'}</div></td>
       </tr>`);
     });
 
@@ -4068,6 +4125,7 @@ function renderRecoveryTab(){
 
 // ── 매입 모달 ──
 function openPurchaseModal(id){
+  if(!isAdmin){ alert('매입 등록/수정은 관리자만 가능합니다.'); return; }
   purchaseEditId = id;
   const item = id ? PURCHASES.find(x => x.id === id) : {};
   document.getElementById('pur-title').textContent = id ? '매입 수정' : '매입 등록';
