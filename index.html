@@ -131,7 +131,7 @@ tbody td{padding:13px 12px;vertical-align:middle}
 .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;white-space:nowrap}
 .b-cms{background:#fae8ff;color:#c026d3}
 .b-card{background:#dbeafe;color:#1e40af}
-.b-cash{background:var(--green-bg);color:var(--green)}
+.b-cash{background:#e5e7eb;color:#1f2937}
 .b-ok{background:var(--green-bg);color:var(--green)}
 .b-late{background:var(--red-bg);color:var(--red)}
 .b-warn{background:var(--orange-bg);color:var(--orange)}
@@ -2372,7 +2372,7 @@ function renderList(){
       <td class="rent-cell" data-rent="${c.rent}" data-cno="${c.no}" style="${rentColor};cursor:pointer">${c.rent.toLocaleString()}원${rentMemoIcon}</td>
       <td style="color:#555;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.phone||'-')}</td>
       <td style="font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.address||'')}">${esc(c.address||'-')}</td>
-      <td style="color:${c.etc_color&&c.etc_color!=='black'?ETC_COLOR_MAP[c.etc_color]||c.etc_color:'#888'};font-size:12px;font-weight:600">${esc(c.etc.toUpperCase())}</td>
+      <td style="color:${c.etc_color&&c.etc_color!=='black'?ETC_COLOR_MAP[c.etc_color]||c.etc_color:'#1f2937'};font-size:12px;font-weight:600">${esc(c.etc.toUpperCase())}</td>
       <td style="text-align:center;font-size:12px;color:var(--text3)">${c.qty||1}</td>
       <td style="font-size:12px">${lp}</td>
       <td>${statusBadge}</td>
