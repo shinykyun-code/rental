@@ -1805,7 +1805,9 @@ function autoSave(){
 function exportJSON(){
   const docCount = DOC_FILES.length;
   const payload = { CONTRACTS, SERVICES, EXTRA_PAYS, INVENTORY, STAFF_LIST, SUPPLIES, DOC_FILES,
+    PURCHASES, SHIPMENTS, RECOVERIES,
     nextNo, nextSvcId, nextExtraId, nextDocId, nextStaffId,
+    nextPurchaseId, nextShipmentId, nextRecoveryId,
     exportDate: new Date().toISOString() };
   const json = JSON.stringify(payload, null, 2);
   const sizeMB = (json.length/1024/1024).toFixed(2);
@@ -1815,7 +1817,7 @@ function exportJSON(){
   a.download = '임대관리_백업_' + new Date().toISOString().slice(0,10) + '.json';
   a.click();
   setTimeout(()=>{
-    alert('✅ 백업 완료\n\n계약 ' + CONTRACTS.length + '건, 계약서류 ' + docCount + '개 포함\n파일 크기: ' + sizeMB + ' MB');
+    alert('✅ 백업 완료\n\n계약 ' + CONTRACTS.length + '건, 계약서류 ' + docCount + '개\n장비 매입 ' + PURCHASES.length + '건, 출고 ' + SHIPMENTS.length + '건, 회수 ' + RECOVERIES.length + '건\n파일 크기: ' + sizeMB + ' MB');
   }, 200);
 }
 
@@ -1840,25 +1842,38 @@ function importJSON(){
         if(d.STAFF_LIST) STAFF_LIST = d.STAFF_LIST;
         if(d.SUPPLIES)   SUPPLIES   = d.SUPPLIES;
         if(d.DOC_FILES)  DOC_FILES  = d.DOC_FILES; else DOC_FILES = [];
+        if(Array.isArray(d.PURCHASES))  PURCHASES  = d.PURCHASES;  else PURCHASES = [];
+        if(Array.isArray(d.SHIPMENTS))  SHIPMENTS  = d.SHIPMENTS;  else SHIPMENTS = [];
+        if(Array.isArray(d.RECOVERIES)) RECOVERIES = d.RECOVERIES; else RECOVERIES = [];
         if(d.nextNo)      nextNo      = d.nextNo;
         if(d.nextSvcId)   nextSvcId   = d.nextSvcId;
         if(d.nextExtraId) nextExtraId = d.nextExtraId;
         if(d.nextDocId)   nextDocId   = d.nextDocId;
         if(d.nextStaffId) nextStaffId = d.nextStaffId;
-        // nextNo 보정
+        if(d.nextPurchaseId) nextPurchaseId = d.nextPurchaseId;
+        if(d.nextShipmentId) nextShipmentId = d.nextShipmentId;
+        if(d.nextRecoveryId) nextRecoveryId = d.nextRecoveryId;
+        // nextId 보정 (충돌 방지)
         {
           const _maxNo = CONTRACTS.reduce((m,c)=>Math.max(m, Number(c.no)||0), 0);
           if(nextNo <= _maxNo) nextNo = _maxNo + 1;
+          const _maxPid = PURCHASES.reduce((m,p)=>Math.max(m, Number(p.id)||0), 0);
+          if(nextPurchaseId <= _maxPid) nextPurchaseId = _maxPid + 1;
+          const _maxSid = SHIPMENTS.reduce((m,s)=>Math.max(m, Number(s.id)||0), 0);
+          if(nextShipmentId <= _maxSid) nextShipmentId = _maxSid + 1;
+          const _maxRid = RECOVERIES.reduce((m,r)=>Math.max(m, Number(r.id)||0), 0);
+          if(nextRecoveryId <= _maxRid) nextRecoveryId = _maxRid + 1;
         }
         applyFilters();
         if(typeof renderDocs === 'function') renderDocs();
+        if(typeof renderInventory === 'function') renderInventory();
         // 온라인이고 Dropbox 연결되어 있으면 즉시 동기화
         if(dbxIsConnected() && !_offlineMode){
           autoSave();
         } else {
           _hasUnsavedChanges = true;
         }
-        alert('✅ 불러오기 완료!\n계약 ' + CONTRACTS.length + '건, 계약서류 ' + DOC_FILES.length + '개');
+        alert('✅ 불러오기 완료!\n계약 ' + CONTRACTS.length + '건, 계약서류 ' + DOC_FILES.length + '개\n장비 매입 ' + PURCHASES.length + '건, 출고 ' + SHIPMENTS.length + '건, 회수 ' + RECOVERIES.length + '건');
       }catch(err){ alert('파일 오류: JSON 백업 파일(.json)을 선택해주세요.\n(HTML 파일이나 다른 파일은 불러올 수 없습니다)\n\n오류: '+err.message); }
     };
     reader.readAsText(file,'utf-8');
