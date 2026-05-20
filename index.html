@@ -129,7 +129,8 @@ tbody td{padding:13px 12px;vertical-align:middle}
 
 /* BADGES */
 .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;white-space:nowrap}
-.b-cms{background:#dbeafe;color:#1d4ed8}
+.b-cms{background:#fae8ff;color:#c026d3}
+.b-card{background:#dbeafe;color:#1e40af}
 .b-cash{background:var(--green-bg);color:var(--green)}
 .b-ok{background:var(--green-bg);color:var(--green)}
 .b-late{background:var(--red-bg);color:var(--red)}
@@ -677,7 +678,7 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
     <div class="controls">
       <input class="inp inp-search" type="text" id="pay-srch" placeholder="🔍 거래처명 검색...">
       <button class="btn btn-ghost btn-sm" onclick="clearPaySrch()" style="font-size:11px;color:#7c3aed;border-color:#c4b5fd;white-space:nowrap">✕ 초기화</button>
-      <input class="inp" type="text" id="pay-day" placeholder="납부일 (예: 15, 말)" style="width:140px" title="계약의 납부일자(payment_day)로 필터. 예: 15 → 매월 15일 납부 계약만">
+      <input class="inp" type="text" id="pay-day" placeholder="납부일 (예: 15 또는 11,12,13)" style="width:200px" title="여러 일자는 콤마로 구분. 예: 11,12,13 → 매월 11일·12일·13일 납부 계약 모두 표시. 텍스트(말 등)도 가능">
       <label style="font-size:12px;color:var(--text3);white-space:nowrap">시작</label>
       <input class="inp" type="month" id="pay-from" style="width:130px">
       <label style="font-size:12px;color:var(--text3)">~</label>
@@ -2352,7 +2353,7 @@ function renderList(){
     const nameBadge=c.terminated
       ? `<span class="badge" style="background:#e5e7eb;color:#9ca3af;font-size:10px;margin-right:4px;vertical-align:middle">해지</span>` : '';
     const rentColor=c.tax==='유'?'color:#dc2626;font-weight:700':'font-weight:600';
-    const cmsBadgeCls=c.cms==='CMS'?'b-cms':c.cms==='카드'?'b-purple':'b-cash';
+    const cmsBadgeCls=c.cms==='CMS'?'b-cms':c.cms==='카드'?'b-card':'b-cash';
     const rentMemo=c.rent_memo||'';
     const rentMemoPlain = stripHtmlTags(rentMemo);
     const rentMemoIcon=rentMemo?`<span style="margin-left:4px;font-size:10px;background:#fef9c3;color:#854d0e;padding:1px 5px;border-radius:3px;font-weight:600;cursor:pointer" title="${esc(rentMemoPlain)}">메모</span>`:'';
@@ -2412,7 +2413,7 @@ function openDetail(no){
   document.getElementById('dm-title').textContent=`No.${c.no}  ${c.name}${termBadge}`;
   const staffNames=(c.staff_ids||[]).map(id=>{const s=STAFF_LIST.find(x=>x.id===id);return s?s.name+(s.phone?' ('+s.phone+')':''):'';}).filter(Boolean).join('<br>');
   document.getElementById('dm-info').innerHTML=[
-    ['거래처',c.name],['유형',`<span class="badge ${c.cms==='CMS'?'b-cms':c.cms==='카드'?'b-purple':'b-cash'}">${c.cms}</span>`],
+    ['거래처',c.name],['유형',`<span class="badge ${c.cms==='CMS'?'b-cms':c.cms==='카드'?'b-card':'b-cash'}">${c.cms}</span>`],
     ['담당자',c.manager],['전화번호',c.phone],
     ['이메일',c.email?`<a href="mailto:${esc(c.email)}" style="color:var(--blue)">${esc(c.email)}</a>`:'−'],
     ['렌탈금',`<strong style="${c.tax==='유'?'color:#dc2626':''}">${c.rent.toLocaleString()}원</strong>`],['납부일',c.payment_day||'-'],
@@ -3021,20 +3022,27 @@ function renderPayment(){
   }
   let list=CONTRACTS.filter(c=>{
     if(q&&!c.name.toLowerCase().includes(q)) return false;
-    // 납부일 필터 (payment_day로 매칭, 부분 문자열)
+    // 납부일 필터 - 콤마로 구분된 여러 일자 매칭 (OR 조건)
     if(payDayQ){
       const pd = (c.payment_day||'').toLowerCase();
       if(!pd) return false;
-      // 숫자만 입력했으면 정확한 일자 매칭 (예: "15" → "매15일"에 매칭, "1"이 "11일"에 매칭 안되도록)
-      if(/^\d+$/.test(payDayQ)){
-        // payment_day에서 숫자 추출 → 정확히 같은 숫자인지 확인
-        const dayMatch = pd.match(/(\d+)/);
-        if(!dayMatch) return false;
-        if(dayMatch[1] !== payDayQ) return false;
-      } else {
-        // "말", "매말" 등 텍스트는 부분 문자열 매칭
-        if(!pd.includes(payDayQ)) return false;
-      }
+      // 콤마/공백으로 분리하여 각 토큰 추출, 빈 값 제거
+      const tokens = payDayQ.split(/[,\s]+/).map(s=>s.trim()).filter(s=>s.length>0);
+      if(!tokens.length) return false;
+      // payment_day에서 숫자 추출 (정확 매칭용)
+      const pdDayMatch = pd.match(/(\d+)/);
+      const pdDayStr = pdDayMatch ? pdDayMatch[1] : null;
+      // 하나라도 매칭되면 통과 (OR 조건)
+      const matched = tokens.some(tok => {
+        if(/^\d+$/.test(tok)){
+          // 숫자 토큰: payment_day의 숫자와 정확히 같아야 함
+          return pdDayStr === tok;
+        } else {
+          // 텍스트 토큰("말" 등): 부분 문자열 매칭
+          return pd.includes(tok);
+        }
+      });
+      if(!matched) return false;
     }
     if(onlyMiss){const hasMiss=keys.some(k=>!c.payments[k]);if(!hasMiss) return false;}
     return !c.terminated;
@@ -3089,9 +3097,11 @@ function renderPayment(){
       </td>`;
     }).join('');
     const rentColor=c.tax==='유'?'color:#dc2626':'';
+    // 거래처명 색상: 카드=파랑, CMS=자주, 현금=검정
+    const nameColor = c.cms==='카드' ? '#2563eb' : c.cms==='CMS' ? '#c026d3' : '#1f2937';
     return `<tr>
       <td style="font-size:11px;color:var(--text3);white-space:nowrap">${regShort}</td>
-      <td style="font-weight:600;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis">${esc(c.name)}</td>
+      <td style="font-weight:600;color:${nameColor};white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis" title="${esc(c.name)} (${c.cms})">${esc(c.name)}</td>
       <td class="rent-cell" data-rent="${c.rent}" style="font-weight:600;white-space:nowrap;${rentColor};cursor:pointer">${c.rent.toLocaleString()}원</td>
       ${cells}
       <td style="text-align:center;cursor:pointer" onclick="openExtraPayAdd(${c.no})">
