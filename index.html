@@ -4884,12 +4884,18 @@ function applyAdminMode(){
   const bn=document.getElementById('nav-admin-btn');
   const ns=document.getElementById('nav-stats-tab');
   const ni=document.getElementById('nav-inventory-tab');
+  const nr=document.getElementById('nav-register-tab');
+  const np=document.getElementById('nav-payment-tab');
+  const newBtn=document.getElementById('list-new-btn');
   if(sw) sw.style.display='block';
   if(sl) sl.style.display='none';
   if(lb) lb.style.display='inline';
   if(bn) bn.textContent='⚙️ 관리자';
   if(ns) ns.style.display='flex';
   if(ni) ni.style.display='flex';
+  if(nr) nr.style.display='flex';
+  if(np) np.style.display='flex';
+  if(newBtn) newBtn.style.display='';
   if(typeof updateStats==='function') updateStats();
 }
 
