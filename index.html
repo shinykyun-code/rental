@@ -383,8 +383,8 @@ td.rent-selected{background:#dbeafe!important;outline:2px solid #3b82f6;outline-
 .counter-input{width:64px;text-align:center;border:1px solid var(--border2);border-radius:4px;padding:4px 2px;font-size:12px;font-family:inherit;color:var(--text);background:var(--white);-moz-appearance:textfield}
 .counter-input::-webkit-outer-spin-button,.counter-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .counter-input:focus{border-color:var(--blue);outline:none}
-.counter-total{font-weight:700;color:var(--blue);font-size:12px}
-.counter-sum-row td{background:#eef2ff;font-weight:700;color:var(--blue)}
+.counter-total{font-weight:700;color:#1f2937;font-size:12px}
+.counter-sum-row td{background:#eef2ff;font-weight:700;color:#1f2937}
 /* 장비보유 */
 #inv-summary{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
 
@@ -3829,10 +3829,21 @@ function renderCounterTab(){
   const no=currentNo;
   const year=parseInt(document.getElementById('counter-year').value);
   const data=getCounterData(no,year); if(!data) return;
-  const monthThs=MONTHS_KR.map(m=>`<th>${m}</th>`).join('');
+  // 헤더: 월 + 일자 입력칸 (월별로 1개 공유 — bk/cl 같은 측정일)
+  const monthThs=MONTHS_KR.map((m,i)=>{
+    const mm=i+1;
+    const day=(data[mm]&&data[mm].day)||'';
+    return `<th style="padding:4px 4px">
+      <div style="font-size:11px;font-weight:600;color:#374151">${m}</div>
+      <input type="number" min="1" max="31" value="${day}" placeholder="일"
+        style="width:36px;text-align:center;border:1px solid #e5e7eb;border-radius:3px;padding:1px;font-size:10px;color:#6b7280;background:#fafbfc;font-family:inherit;margin-top:2px"
+        onchange="saveCounterDay(${no},${year},${mm},this.value)"
+        title="${year}년 ${mm}월 카운터 측정 일자">
+    </th>`;
+  }).join('');
   const bkCells=Array.from({length:12},(_,i)=>{const m=i+1,v=data[m].bk||0;return `<td><input class="counter-input" type="number" min="0" value="${v===0?'':v}" placeholder="0" onchange="saveCounter(${no},${year},${m},\`bk\`,this.value)"></td>`;}).join('');
   const clCells=Array.from({length:12},(_,i)=>{const m=i+1,v=data[m].cl||0;return `<td><input class="counter-input" type="number" min="0" value="${v===0?'':v}" placeholder="0" onchange="saveCounter(${no},${year},${m},\`cl\`,this.value)"></td>`;}).join('');
-  const sumCells=Array.from({length:12},(_,i)=>{const m=i+1,s=(data[m].bk||0)+(data[m].cl||0);return `<td class="counter-total" id="csum_${no}_${year}_${m}">${s||''}</td>`;}).join('');
+  const sumCells=Array.from({length:12},(_,i)=>{const m=i+1,s=(data[m].bk||0)+(data[m].cl||0);return `<td class="counter-total" id="csum_${no}_${year}_${m}" style="color:#1f2937">${s||''}</td>`;}).join('');
   const diffBkCells=Array.from({length:12},(_,i)=>_diffCell(data,'bk',i+1,no,year)).join('');
   const diffClCells=Array.from({length:12},(_,i)=>_diffCell(data,'cl',i+1,no,year)).join('');
   const extraBkCells=Array.from({length:12},(_,i)=>_extraCell(data,'bk',i+1,no,year)).join('');
@@ -3843,15 +3854,30 @@ function renderCounterTab(){
   const totalExtraBk=Array.from({length:12},(_,i)=>_calcExtraFee(data,'bk',i+1,no,year)).reduce((a,b)=>a+b,0);
   const totalExtraCl=Array.from({length:12},(_,i)=>_calcExtraFee(data,'cl',i+1,no,year)).reduce((a,b)=>a+b,0);
   document.getElementById('dm-counter').innerHTML=`<div style="overflow-x:auto"><table class="counter-table"><thead><tr><th style="min-width:60px">구분</th>${monthThs}<th>합계</th></tr></thead><tbody>
-    <tr><td><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#333;border-radius:2px;display:inline-block"></span>흑백</span></td>${bkCells}<td class="counter-total" id="ctotal_bk_${no}_${year}">${totalBk||''}</td></tr>
+    <tr><td><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#333;border-radius:2px;display:inline-block"></span>흑백</span></td>${bkCells}<td class="counter-total" id="ctotal_bk_${no}_${year}" style="color:#1f2937">${totalBk||''}</td></tr>
     <tr style="background:#f9fafb"><td style="font-size:11px;color:#6b7280;padding-left:16px">전월대비</td>${diffBkCells}<td style="text-align:center;font-size:11px;color:#9ca3af">-</td></tr>
     <tr style="background:#f0f7ff"><td style="font-size:11px;color:#1d4ed8;padding-left:16px;font-weight:600">추가금액</td>${extraBkCells}<td class="counter-total" id="cextra_total_bk_${no}_${year}" style="color:#1d4ed8">${totalExtraBk?totalExtraBk.toLocaleString():'0'}</td></tr>
-    <tr><td><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:linear-gradient(135deg,#e24b4a 33%,#3b9922 33% 66%,#185fa5 66%);border-radius:2px;display:inline-block"></span>칼라</span></td>${clCells}<td class="counter-total" id="ctotal_cl_${no}_${year}">${totalCl||''}</td></tr>
+    <tr><td><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:linear-gradient(135deg,#e24b4a 33%,#3b9922 33% 66%,#185fa5 66%);border-radius:2px;display:inline-block"></span>칼라</span></td>${clCells}<td class="counter-total" id="ctotal_cl_${no}_${year}" style="color:#1f2937">${totalCl||''}</td></tr>
     <tr style="background:#f9fafb"><td style="font-size:11px;color:#6b7280;padding-left:16px">전월대비</td>${diffClCells}<td style="text-align:center;font-size:11px;color:#9ca3af">-</td></tr>
     <tr style="background:#f0f7ff"><td style="font-size:11px;color:#1d4ed8;padding-left:16px;font-weight:600">추가금액</td>${extraClCells}<td class="counter-total" id="cextra_total_cl_${no}_${year}" style="color:#1d4ed8">${totalExtraCl?totalExtraCl.toLocaleString():'0'}</td></tr>
-    <tr class="counter-sum-row"><td>합계</td>${sumCells}<td class="counter-total" id="ctotal_all_${no}_${year}">${(totalBk+totalCl)||''}</td></tr>
+    <tr class="counter-sum-row"><td>합계</td>${sumCells}<td class="counter-total" id="ctotal_all_${no}_${year}" style="color:#1f2937">${(totalBk+totalCl)||''}</td></tr>
     <tr class="counter-sum-row" style="background:#dbeafe"><td style="color:#1d4ed8">추가금액 합계</td>${extraSumCells}<td class="counter-total" id="cextra_total_all_${no}_${year}" style="color:#1d4ed8">${(totalExtraBk+totalExtraCl)?(totalExtraBk+totalExtraCl).toLocaleString():'0'}</td></tr>
   </tbody></table></div>`;
+}
+
+// 카운터 측정 일자 저장
+function saveCounterDay(no,year,month,val){
+  const c=CONTRACTS.find(x=>x.no===no); if(!c) return;
+  if(!c.counters) c.counters={};
+  if(!c.counters[year]) c.counters[year]={};
+  if(!c.counters[year][month]) c.counters[year][month]={bk:0,cl:0};
+  const v = parseInt(val);
+  if(val === '' || isNaN(v) || v < 1 || v > 31){
+    delete c.counters[year][month].day;
+  } else {
+    c.counters[year][month].day = v;
+  }
+  autoSave();
 }
 function saveCounter(no,year,month,type,val){
   const c=CONTRACTS.find(x=>x.no===no); if(!c) return;
