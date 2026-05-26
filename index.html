@@ -470,6 +470,7 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
   <div class="nav-tab" onclick="showPage('docs')">📁 계약서류</div>
   <div class="nav-tab" id="nav-stats-tab" onclick="showPage('rentstats')" style="display:none">📊 임대통계</div>
   <div class="nav-tab" id="nav-inventory-tab" onclick="showPage('inventory')">🖨️ 장비보유</div>
+  <div class="nav-tab" id="nav-supply-tab" onclick="showPage('supply')">🔧 소모품보유</div>
   <div style="flex:1"></div>
   <div style="display:flex;align-items:center;gap:8px">
     <span id="nav-admin-label" style="display:none;color:#bbdefb;font-size:12px;font-weight:600">🔓 관리자 모드</span>
@@ -2017,7 +2018,7 @@ function showPage(id){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
-  const idx={list:0,register:1,payment:2,docs:3,rentstats:4,inventory:5}[id];
+  const idx={list:0,register:1,payment:2,docs:3,rentstats:4,inventory:5,supply:6}[id];
   const tabs=document.querySelectorAll('.nav-tab');
   if(tabs[idx]) tabs[idx].classList.add('active');
   if(id==='list') renderList();
@@ -2038,7 +2039,8 @@ function showPage(id){
   }
   if(id==='docs') renderDocs();
   if(id==='rentstats') renderRentStats();
-  if(id==='inventory'){ renderInventory(); renderSupply(); }
+  if(id==='inventory') renderInventory();
+  if(id==='supply') renderSupply();
   if(id==='register'&&!editingNo){clearForm();document.getElementById('reg-title').textContent='신규 임대업체 등록';}
 }
 
@@ -4683,8 +4685,10 @@ function hidePayTip(){ payTipEl.style.display = 'none'; }
       </div>
     </div>
   </div>
+</div>
 
-  <!-- 소모품 보유현황 -->
+<!-- ══ 소모품 보유현황 페이지 ══ -->
+<div class="page" id="page-supply">
   <div class="card">
     <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
       <span class="card-title">🔧 소모품 보유현황</span>
