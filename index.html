@@ -99,6 +99,13 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 #page-payment > .card:first-child .tbl-wrap{overflow:visible}
 #page-payment > .card:first-child .controls{position:sticky;top:var(--pay-controls-top,52px);z-index:30;background:#fff;border-bottom:1px solid var(--border)}
 #page-payment #pay-table thead th{position:sticky;top:var(--pay-thead-top,100px);z-index:28;background:#e5e7eb;box-shadow:0 1px 0 var(--border)}
+
+/* ══ 장비보유: 하위탭(매입/출고/회수) + 컬럼 헤더 sticky 고정 ══ */
+#page-inventory{padding-bottom:24px}
+#page-inventory .card{overflow:visible}
+#page-inventory .tbl-wrap{overflow:visible}
+#page-inventory .inv-tabs{position:sticky;top:52px;z-index:30;background:#fff;border-bottom:2px solid #d1d5db}
+#page-inventory .inv-tab-panel thead th{position:sticky;top:var(--inv-thead-top,90px);z-index:28;background:#e5e7eb;box-shadow:0 1px 0 var(--border)}
 thead th.resizable{position:relative;user-select:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .col-resizer{position:absolute;right:0;top:0;width:6px;height:100%;cursor:col-resize;z-index:5}
 .col-resizer:hover,.col-resizer.dragging{background:rgba(26,86,160,.35)}
@@ -2041,6 +2048,8 @@ function showPage(id){
   if(id==='rentstats') renderRentStats();
   if(id==='inventory') renderInventory();
   if(id==='supply') renderSupply();
+  // 장비보유 페이지로 전환 시 sticky 헤더 위치 재계산
+  if(id==='inventory'){ setTimeout(()=>{ if(typeof updateListStickyOffsets==='function') updateListStickyOffsets(); }, 60); }
   if(id==='register'&&!editingNo){clearForm();document.getElementById('reg-title').textContent='신규 임대업체 등록';}
 }
 
@@ -3994,6 +4003,8 @@ function switchInvTab(tab){
     actions.innerHTML = '<button class="btn btn-primary btn-sm" onclick="openRecoveryModal(null)">＋ 회수 등록</button>';
   }
   renderInventory();
+  // 하위탭 전환 후 sticky 헤더 위치 재계산
+  setTimeout(()=>{ if(typeof updateListStickyOffsets==='function') updateListStickyOffsets(); }, 60);
 }
 
 function renderInventory(){
@@ -4985,6 +4996,13 @@ function updateListStickyOffsets(){
     const payControlsH = payControls.getBoundingClientRect().height;
     root.style.setProperty('--pay-controls-top', navH + 'px');
     root.style.setProperty('--pay-thead-top', (navH + payControlsH) + 'px');
+  }
+
+  // 장비보유 페이지 (inv-tabs 아래에 thead가 붙도록)
+  const invTabs = document.querySelector('#page-inventory .inv-tabs');
+  if(invTabs){
+    const invTabsH = invTabs.getBoundingClientRect().height;
+    root.style.setProperty('--inv-thead-top', (navH + invTabsH) + 'px');
   }
 
   updateHorizontalScrollbar();
