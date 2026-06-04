@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -4438,7 +4439,23 @@ function renderSupply(){
     if(!key) return;
     deviceQtyMap[key] = (deviceQtyMap[key]||0) + (c.qty||1);
   });
-  tbody.innerHTML = SUPPLIES.map(s=>{
+  // 해당 장비 검색어로 필터
+  const kw = (document.getElementById('supply-search')?.value || '').toUpperCase().trim();
+  let rows = kw
+    ? SUPPLIES.filter(s => (s.device || '').toUpperCase().includes(kw))
+    : [...SUPPLIES];
+  // 해당 장비(device) → 소모품명(name) 순으로 정렬
+  rows.sort((a, b) => {
+    const d = (a.device||'').toUpperCase().trim().localeCompare((b.device||'').toUpperCase().trim(), 'ko');
+    if (d !== 0) return d;
+    return (a.name||'').localeCompare(b.name||'', 'ko');
+  });
+  // 검색 결과 없을 때 안내
+  if(!rows.length){
+    tbody.innerHTML='<tr><td colspan="10"><div class="empty"><div class="empty-icon">🔍</div>검색 결과가 없습니다.</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(s=>{
     const qty = s.qty||0;
     const min = s.min||1;
     const lack = qty <= 0;
@@ -4716,9 +4733,13 @@ function hidePayTip(){ payTipEl.style.display = 'none'; }
 <!-- ══ 소모품 보유현황 페이지 ══ -->
 <div class="page" id="page-supply">
   <div class="card">
-    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
       <span class="card-title">🔧 소모품 보유현황</span>
-      <button class="btn btn-primary btn-sm" onclick="openSupplyModal(null)">＋ 소모품 등록</button>
+      <div style="display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end">
+        <input class="inp" id="supply-search" placeholder="🔍 해당 장비 검색"
+               style="max-width:220px" oninput="renderSupply()">
+        <button class="btn btn-primary btn-sm" onclick="openSupplyModal(null)">＋ 소모품 등록</button>
+      </div>
     </div>
     <div class="tbl-wrap">
       <table><thead><tr>
