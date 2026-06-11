@@ -869,6 +869,34 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
   </div>
 </div>
 
+<!-- ══ MODAL: 월별 입금업체 상세 ══ -->
+<div class="modal-bg" id="pay-detail-modal">
+  <div class="modal" style="max-width:720px">
+    <div class="modal-head"><h3 id="pd-title">월별 입금업체</h3><button class="modal-close" onclick="closeModal('pay-detail-modal')">×</button></div>
+    <div style="padding:10px 16px;background:#f9fafb;font-size:12px;color:#374151;display:flex;gap:16px;border-bottom:1px solid #e5e7eb">
+      <span><strong style="color:#0c4a6e">렌탈 입금건수</strong> <span id="pd-count">0</span>건</span>
+      <span><strong style="color:#0c4a6e">합계(추가사용료 포함)</strong> <span id="pd-sum" style="color:var(--blue);font-weight:700">0</span>원</span>
+    </div>
+    <div class="modal-body" style="padding:0;max-height:58vh;overflow-y:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead>
+          <tr style="background:#f3f4f6">
+            <th id="pd-th-name" onclick="sortPayDetail('name')" style="padding:8px 10px;text-align:left;font-weight:600;color:#374151;border-bottom:1.5px solid #d1d5db;cursor:pointer;user-select:none">업체명 ⇅</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:#374151;border-bottom:1.5px solid #d1d5db;width:90px">기기</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:600;color:#374151;border-bottom:1.5px solid #d1d5db;width:140px">구분</th>
+            <th id="pd-th-date" onclick="sortPayDetail('date')" style="padding:8px 10px;text-align:center;font-weight:600;color:#374151;border-bottom:1.5px solid #d1d5db;width:110px;cursor:pointer;user-select:none">입금일 ⇅</th>
+            <th id="pd-th-amount" onclick="sortPayDetail('amount')" style="padding:8px 10px;text-align:right;font-weight:600;color:#374151;border-bottom:1.5px solid #d1d5db;width:110px;cursor:pointer;user-select:none">금액 ⇅</th>
+          </tr>
+        </thead>
+        <tbody id="pd-body"></tbody>
+      </table>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('pay-detail-modal')">닫기</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ MODAL: 서류 업로드 ══ -->
 <div class="modal-bg" id="doc-modal">
   <div class="modal">
@@ -4073,12 +4101,13 @@ function renderMonthlyPayStats(){
     });
     tBillCnt+=billCnt;tBillAmt+=billAmt;tPayCnt+=payCnt;tPayAmt+=payAmt;tUnpaidCnt+=unpaidCnt;tUnpaidAmt+=unpaidAmt;
     const [yy,mm]=ym.split('-');
+    const payClick = payCnt>0 ? ` onclick="openPayDetail('${ym}')" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted"` : '';
     return `<tr>
       <td style="font-weight:600">${parseInt(yy)}.${mm}</td>
       <td style="text-align:center">${billCnt}</td>
       <td style="text-align:right">${billAmt.toLocaleString()}원</td>
-      <td style="text-align:center">${payCnt}</td>
-      <td style="text-align:right;color:var(--blue)">${payAmt.toLocaleString()}원</td>
+      <td style="text-align:center;color:var(--blue)"${payClick}>${payCnt}</td>
+      <td style="text-align:right;color:var(--blue)"${payClick}>${payAmt.toLocaleString()}원</td>
       <td style="text-align:center;color:${unpaidCnt?'#dc2626':'#9ca3af'}">${unpaidCnt}</td>
       <td style="text-align:right;color:${unpaidAmt?'#dc2626':'#9ca3af'}">${unpaidAmt.toLocaleString()}원</td>
     </tr>`;
@@ -4144,6 +4173,86 @@ function renderMonthlyPayStats(){
       }).join('');
     }
   }
+}
+
+// ── 월별 입금업체 상세 (입금건수/입금액 셀 클릭 시) ──
+let payDetailYm = null;            // 현재 보고 있는 청구월(입금월)
+let payDetailSort = { key:'amount', asc:false }; // 기본: 금액 내림차순
+
+function openPayDetail(ym){
+  payDetailYm = ym;
+  payDetailSort = { key:'amount', asc:false };
+  renderPayDetail();
+  openModal('pay-detail-modal');
+}
+
+function sortPayDetail(key){
+  if(payDetailSort.key===key) payDetailSort.asc = !payDetailSort.asc;
+  else { payDetailSort.key = key; payDetailSort.asc = (key==='name'); } // 이름은 오름차순, 금액·날짜는 내림차순 기본
+  renderPayDetail();
+}
+
+function renderPayDetail(){
+  const ym = payDetailYm;
+  if(!ym) return;
+  const active=(CONTRACTS||[]).filter(c=>!c.terminated);
+  // 그 달에 입금일이 찍힌 렌탈 입금 건 수집
+  const list=[];
+  active.forEach(c=>{
+    const rent=c.rent||0;
+    const pays=c.payments||{};
+    for(const k in pays){
+      const v=pays[k];
+      if(v && v.slice(0,7)===ym){
+        list.push({ name:c.name||'-', etc:c.etc||'', billYm:k, payDate:v, amount:rent, type:'렌탈' });
+      }
+    }
+  });
+  // 추가사용료(등록일 기준)도 표시하되 '추가' 구분
+  (typeof EXTRA_PAYS!=='undefined' ? EXTRA_PAYS : []).forEach(e=>{
+    if(e.date && e.date.slice(0,7)===ym){
+      const c=(CONTRACTS||[]).find(x=>x.no===e.no);
+      list.push({ name:(c&&c.name)||'(추가사용료)', etc:(c&&c.etc)||'', billYm:'-', payDate:e.date, amount:parseInt(e.amount)||0, type:'추가', item:e.item||'' });
+    }
+  });
+
+  // 정렬
+  const dir = payDetailSort.asc ? 1 : -1;
+  list.sort((a,b)=>{
+    let r;
+    if(payDetailSort.key==='name') r=(a.name||'').localeCompare(b.name||'','ko');
+    else if(payDetailSort.key==='amount') r=(a.amount||0)-(b.amount||0);
+    else r=(a.payDate||'').localeCompare(b.payDate||''); // date
+    return r*dir;
+  });
+
+  const [yy,mm]=ym.split('-');
+  document.getElementById('pd-title').textContent = `📋 ${parseInt(yy)}년 ${parseInt(mm)}월 입금업체 (${list.length}건)`;
+  const rentCnt=list.filter(x=>x.type==='렌탈').length;
+  const totalAmt=list.reduce((s,x)=>s+x.amount,0);
+  document.getElementById('pd-count').textContent=rentCnt;
+  document.getElementById('pd-sum').textContent=totalAmt.toLocaleString();
+
+  const arrow=(key)=> payDetailSort.key===key ? (payDetailSort.asc?' ▲':' ▼') : ' ⇅';
+  document.getElementById('pd-th-name').innerHTML='업체명'+arrow('name');
+  document.getElementById('pd-th-date').innerHTML='입금일'+arrow('date');
+  document.getElementById('pd-th-amount').innerHTML='금액'+arrow('amount');
+
+  const body=document.getElementById('pd-body');
+  if(!list.length){ body.innerHTML='<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:14px">입금 내역이 없습니다.</td></tr>'; return; }
+  body.innerHTML=list.map(x=>{
+    const typeBadge = x.type==='추가'
+      ? '<span class="badge" style="background:#fef9c3;color:#b45309;font-weight:700">추가</span>'
+      : '<span class="badge b-teal">렌탈</span>';
+    const billInfo = x.type==='추가' ? esc(x.item||'추가사용료') : (x.billYm!=='-'?x.billYm+' 청구분':'-');
+    return `<tr style="border-bottom:1px solid #f3f4f6">
+      <td style="padding:8px 10px">${esc(x.name)}</td>
+      <td style="padding:8px 10px;color:#6b7280;font-size:12px">${esc(x.etc||'-')}</td>
+      <td style="padding:8px 10px;text-align:center">${typeBadge} <span style="font-size:11px;color:#9ca3af">${billInfo}</span></td>
+      <td style="padding:8px 10px;text-align:center;color:#6b7280">${x.payDate}</td>
+      <td style="padding:8px 10px;text-align:right;font-weight:600;color:var(--blue)">${x.amount.toLocaleString()}원</td>
+    </tr>`;
+  }).join('');
 }
 
 // ══ 장비보유현황 (매입/출고/회수) ══
