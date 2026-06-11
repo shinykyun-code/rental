@@ -4025,12 +4025,22 @@ function ymToday(){ const d=new Date(); return ymStr(d.getFullYear(), d.getMonth
 function initMpsRange(){
   const now=new Date();
   const curY=now.getFullYear(), curM=now.getMonth()+1;
-  // 데이터에서 가장 이른 reg_date 연도 찾기
-  let minY=curY;
+  // 데이터에서 reg_date / payments(청구월·입금일)의 최소·최대 연도 탐색
+  let minY=curY, maxY=curY;
   (CONTRACTS||[]).forEach(c=>{
     const ry=parseInt((c.reg_date||'').slice(0,4));
-    if(ry && ry<minY) minY=ry;
+    if(ry && ry>=2000 && ry<minY) minY=ry;
+    const pays=c.payments||{};
+    for(const k in pays){
+      const ky=parseInt(k.slice(0,4));               // 청구월 연도
+      if(ky && ky>=2000){ if(ky<minY) minY=ky; if(ky>maxY) maxY=ky; }
+      const v=pays[k];
+      const vy=v?parseInt(v.slice(0,4)):0;           // 입금일 연도
+      if(vy && vy>=2000){ if(vy<minY) minY=vy; if(vy>maxY) maxY=vy; }
+    }
   });
+  // 미래 입력 여유: 현재연도+1과 데이터 최대연도 중 큰 값까지 표시
+  maxY=Math.max(maxY, curY+1);
   const yFrom=document.getElementById('mps-y-from');
   const yTo  =document.getElementById('mps-y-to');
   const mFrom=document.getElementById('mps-m-from');
@@ -4039,7 +4049,7 @@ function initMpsRange(){
   // 이미 채워졌으면 다시 채우지 않음
   if(yFrom.dataset.init==='1') return;
   let yOpts='';
-  for(let y=curY; y>=minY; y--) yOpts+=`<option value="${y}">${y}년</option>`;
+  for(let y=maxY; y>=minY; y--) yOpts+=`<option value="${y}">${y}년</option>`;
   let mOpts='';
   for(let m=1; m<=12; m++) mOpts+=`<option value="${m}">${m}월</option>`;
   yFrom.innerHTML=yOpts; yTo.innerHTML=yOpts;
