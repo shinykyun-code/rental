@@ -1,5 +1,4 @@
 
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -3982,6 +3981,169 @@ function renderRentStats(){
     const cPct=totalCount?Math.round(v.count/totalCount*100):0;
     return `<tr><td style="font-weight:600">${esc(k)}</td><td style="text-align:center">${v.count}개</td><td style="text-align:center"><span class="badge b-teal">${cPct}%</span></td><td style="text-align:right;font-weight:600;color:var(--blue)">${v.rent.toLocaleString()}원</td></tr>`;
   }).join('')+`<tr style="background:#f7f8fa;font-weight:700"><td>합계</td><td style="text-align:center">${totalCount}개</td><td style="text-align:center">100%</td><td style="text-align:right;color:var(--blue)">${totalRent.toLocaleString()}원</td></tr>`;
+
+  // 월별 입금통계도 함께 갱신
+  if(typeof renderMonthlyPayStats==='function') renderMonthlyPayStats();
+}
+
+// ══ 월별 입금통계 ══
+const LONGTERM_UNPAID_MONTHS = 4; // 연속 N개월 이상 입금기록 없으면 장기미납(휴면 의심)
+
+// YYYY-MM 문자열 비교/생성 유틸
+function ymStr(y,m){ return `${y}-${String(m).padStart(2,'0')}`; }
+function ymToday(){ const d=new Date(); return ymStr(d.getFullYear(), d.getMonth()+1); }
+
+// 기간 선택 드롭다운 초기화 (시작 연/월 ~ 종료 연/월)
+function initMpsRange(){
+  const now=new Date();
+  const curY=now.getFullYear(), curM=now.getMonth()+1;
+  // 데이터에서 가장 이른 reg_date 연도 찾기
+  let minY=curY;
+  (CONTRACTS||[]).forEach(c=>{
+    const ry=parseInt((c.reg_date||'').slice(0,4));
+    if(ry && ry<minY) minY=ry;
+  });
+  const yFrom=document.getElementById('mps-y-from');
+  const yTo  =document.getElementById('mps-y-to');
+  const mFrom=document.getElementById('mps-m-from');
+  const mTo  =document.getElementById('mps-m-to');
+  if(!yFrom||!yTo||!mFrom||!mTo) return;
+  // 이미 채워졌으면 다시 채우지 않음
+  if(yFrom.dataset.init==='1') return;
+  let yOpts='';
+  for(let y=curY; y>=minY; y--) yOpts+=`<option value="${y}">${y}년</option>`;
+  let mOpts='';
+  for(let m=1; m<=12; m++) mOpts+=`<option value="${m}">${m}월</option>`;
+  yFrom.innerHTML=yOpts; yTo.innerHTML=yOpts;
+  mFrom.innerHTML=mOpts; mTo.innerHTML=mOpts;
+  // 기본값: 올해 1월 ~ 올해 현재월
+  yFrom.value=curY; mFrom.value=1;
+  yTo.value=curY;   mTo.value=curM;
+  yFrom.dataset.init='1';
+}
+
+function renderMonthlyPayStats(){
+  initMpsRange();
+  const yFrom=document.getElementById('mps-y-from');
+  const yTo  =document.getElementById('mps-y-to');
+  const mFrom=document.getElementById('mps-m-from');
+  const mTo  =document.getElementById('mps-m-to');
+  const tbody=document.getElementById('mps-body');
+  const ltBody=document.getElementById('mps-longterm-body');
+  if(!yFrom||!tbody) return;
+
+  let fromY=parseInt(yFrom.value), fromM=parseInt(mFrom.value);
+  let toY=parseInt(yTo.value), toM=parseInt(mTo.value);
+  // 시작이 종료보다 뒤면 스왑
+  if(fromY*12+fromM > toY*12+toM){ [fromY,toY]=[toY,fromY]; [fromM,toM]=[toM,fromM]; }
+
+  // 대상 청구월 목록 생성
+  const months=[];
+  let y=fromY, m=fromM;
+  while(y*12+m <= toY*12+toM){ months.push(ymStr(y,m)); m++; if(m>12){m=1;y++;} }
+
+  const active=(CONTRACTS||[]).filter(c=>!c.terminated);
+  const today=ymToday();
+
+  let tBillCnt=0,tBillAmt=0,tPayCnt=0,tPayAmt=0,tUnpaidCnt=0,tUnpaidAmt=0;
+  const rowsHtml=months.map(ym=>{
+    let billCnt=0,billAmt=0,payCnt=0,payAmt=0,unpaidCnt=0,unpaidAmt=0;
+    active.forEach(c=>{
+      const rent=c.rent||0;
+      const pays=c.payments||{};
+      const regYm=(c.reg_date||'').slice(0,7);
+      // 청구 대상: 계약시작 이후 청구월
+      const billable = (!regYm || ym>=regYm);
+      if(billable){
+        if(ym in pays){ billCnt++; billAmt+=rent; }
+        else if(ym<=today){ // 미래월은 미납 제외
+          billCnt++; billAmt+=rent;   // 청구는 발생했다고 봄
+          unpaidCnt++; unpaidAmt+=rent; // 입금기록 없음 → 미납
+        }
+      }
+      // 입금: 입금일(값)이 해당 월인 건
+      for(const k in pays){
+        const v=pays[k];
+        if(v && v.slice(0,7)===ym){ payCnt++; payAmt+=rent; }
+      }
+    });
+    // 해당 월 추가사용료를 입금액 합계에만 가산 (건수에는 미포함)
+    (typeof EXTRA_PAYS!=='undefined' ? EXTRA_PAYS : []).forEach(e=>{
+      if(e.date && e.date.slice(0,7)===ym) payAmt += (parseInt(e.amount)||0);
+    });
+    tBillCnt+=billCnt;tBillAmt+=billAmt;tPayCnt+=payCnt;tPayAmt+=payAmt;tUnpaidCnt+=unpaidCnt;tUnpaidAmt+=unpaidAmt;
+    const [yy,mm]=ym.split('-');
+    return `<tr>
+      <td style="font-weight:600">${parseInt(yy)}.${mm}</td>
+      <td style="text-align:center">${billCnt}</td>
+      <td style="text-align:right">${billAmt.toLocaleString()}원</td>
+      <td style="text-align:center">${payCnt}</td>
+      <td style="text-align:right;color:var(--blue)">${payAmt.toLocaleString()}원</td>
+      <td style="text-align:center;color:${unpaidCnt?'#dc2626':'#9ca3af'}">${unpaidCnt}</td>
+      <td style="text-align:right;color:${unpaidAmt?'#dc2626':'#9ca3af'}">${unpaidAmt.toLocaleString()}원</td>
+    </tr>`;
+  }).join('');
+
+  tbody.innerHTML=rowsHtml+`<tr style="background:#f7f8fa;font-weight:700">
+    <td>합계</td>
+    <td style="text-align:center">${tBillCnt.toLocaleString()}</td>
+    <td style="text-align:right">${tBillAmt.toLocaleString()}원</td>
+    <td style="text-align:center">${tPayCnt.toLocaleString()}</td>
+    <td style="text-align:right;color:var(--blue)">${tPayAmt.toLocaleString()}원</td>
+    <td style="text-align:center;color:#dc2626">${tUnpaidCnt.toLocaleString()}</td>
+    <td style="text-align:right;color:#dc2626">${tUnpaidAmt.toLocaleString()}원</td>
+  </tr>`;
+
+  // 요약 카드
+  const setTxt=(id,v)=>{const el=document.getElementById(id); if(el) el.textContent=v;};
+  setTxt('mps-sum-bill', tBillAmt.toLocaleString()+'원');
+  setTxt('mps-sum-pay',  tPayAmt.toLocaleString()+'원');
+  setTxt('mps-sum-unpaid', tUnpaidAmt.toLocaleString()+'원');
+
+  // ── 장기미납(연속 N개월 이상 입금기록 없음) ──
+  // 현재 시점부터 거꾸로 연속으로 비어있는 청구월 수를 계산
+  function consecutiveUnpaid(c){
+    const pays=c.payments||{};
+    const regYm=(c.reg_date||'').slice(0,7);
+    // 계약시작 ~ 오늘까지 청구월 역순 검사
+    let cnt=0;
+    let [ty,tm]=today.split('-').map(Number);
+    while(true){
+      const ym=ymStr(ty,tm);
+      if(regYm && ym<regYm) break;
+      if(ym in pays) break;     // 입금기록 만나면 중단
+      cnt++;
+      tm--; if(tm<1){tm=12;ty--;}
+      if(ty<2000) break;
+    }
+    return cnt;
+  }
+  const longterm=[];
+  active.forEach(c=>{
+    const n=consecutiveUnpaid(c);
+    if(n>=LONGTERM_UNPAID_MONTHS){
+      longterm.push({c, n, amt:(c.rent||0)*n});
+    }
+  });
+  longterm.sort((a,b)=>b.n-a.n);
+  setTxt('mps-sum-longterm', longterm.length.toLocaleString()+'건');
+
+  if(ltBody){
+    if(!longterm.length){
+      ltBody.innerHTML='<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:14px">장기미납 의심 건이 없습니다.</td></tr>';
+    } else {
+      ltBody.innerHTML=longterm.map(({c,n,amt})=>{
+        const badgeColor = n>=12 ? 'background:#fee2e2;color:#dc2626' : 'background:#fef9c3;color:#b45309';
+        return `<tr>
+          <td>${esc(c.name||'-')}</td>
+          <td style="color:#6b7280">${esc(c.etc||'-')}</td>
+          <td style="text-align:right">${(c.rent||0).toLocaleString()}원</td>
+          <td style="text-align:center"><span class="badge" style="${badgeColor};font-weight:700">${n}개월</span></td>
+          <td style="text-align:right;color:#dc2626">${amt.toLocaleString()}원</td>
+        </tr>`;
+      }).join('');
+    }
+  }
 }
 
 // ══ 장비보유현황 (매입/출고/회수) ══
@@ -4443,9 +4605,7 @@ function renderSupply(){
   // 해당 장비 검색어로 필터
   const kw = (document.getElementById('supply-search')?.value || '').toUpperCase().trim();
   let rows = kw
-   ? SUPPLIES.filter(s =>
-        (s.device||'').toUpperCase().includes(kw) ||
-        (s.name||'').toUpperCase().includes(kw))
+    ? SUPPLIES.filter(s => (s.device || '').toUpperCase().includes(kw))
     : [...SUPPLIES];
   // 해당 장비(device) → 소모품명(name) 순으로 정렬
   rows.sort((a, b) => {
@@ -4667,6 +4827,54 @@ function hidePayTip(){ payTipEl.style.display = 'none'; }
       <div class="tbl-wrap"><table><thead><tr>
         <th>지역</th><th style="text-align:center">업체수</th><th style="text-align:center">업체비율</th><th style="text-align:right">렌탈금합계</th>
       </tr></thead><tbody id="stats-region-body"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ── 월별 입금통계 ── -->
+  <div class="card" style="margin-top:16px">
+    <div class="card-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span class="card-title">📊 월별 입금통계</span>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto">
+        <select class="inp" id="mps-y-from" style="max-width:95px"></select>
+        <select class="inp" id="mps-m-from" style="max-width:78px"></select>
+        <span style="color:var(--text3)">~</span>
+        <select class="inp" id="mps-y-to" style="max-width:95px"></select>
+        <select class="inp" id="mps-m-to" style="max-width:78px"></select>
+        <button class="btn btn-primary btn-sm" onclick="renderMonthlyPayStats()">🔍 조회</button>
+      </div>
+    </div>
+    <!-- 요약 카드 -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:12px;padding:14px">
+      <div class="stat"><div class="stat-l">기간 청구액</div><div class="stat-n" id="mps-sum-bill">-</div></div>
+      <div class="stat"><div class="stat-l">기간 입금액</div><div class="stat-n" id="mps-sum-pay" style="color:var(--blue)">-</div></div>
+      <div class="stat"><div class="stat-l">미납액 합계</div><div class="stat-n" id="mps-sum-unpaid" style="color:#dc2626">-</div></div>
+      <div class="stat"><div class="stat-l">장기미납(4개월+)</div><div class="stat-n" id="mps-sum-longterm" style="color:#b45309">-</div></div>
+    </div>
+    <!-- 월별 표 -->
+    <div class="tbl-wrap">
+      <table style="min-width:600px"><thead><tr>
+        <th>월</th>
+        <th style="text-align:center">청구건수</th>
+        <th style="text-align:right">청구액</th>
+        <th style="text-align:center">입금건수</th>
+        <th style="text-align:right">입금액</th>
+        <th style="text-align:center">미납건수</th>
+        <th style="text-align:right">미납액</th>
+      </tr></thead><tbody id="mps-body"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── 장기미납 의심 ── -->
+  <div class="card" style="margin-top:16px">
+    <div class="card-header"><span class="card-title" style="color:#b45309">⚠️ 장기미납 의심</span><span style="font-size:12px;color:var(--text3)">현재 시점부터 연속 4개월 이상 입금기록 없음 (휴면 의심)</span></div>
+    <div class="tbl-wrap">
+      <table style="min-width:480px"><thead><tr>
+        <th>업체명</th>
+        <th>기기</th>
+        <th style="text-align:right">월렌탈금</th>
+        <th style="text-align:center">연속미납</th>
+        <th style="text-align:right">누적미납</th>
+      </tr></thead><tbody id="mps-longterm-body"></tbody></table>
     </div>
   </div>
 </div>
