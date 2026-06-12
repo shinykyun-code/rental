@@ -2020,6 +2020,20 @@ function normalizeName(name){
     .trim();
 }
 function firstWord(name){ return normalizeName(name).split(/[\s\(\（【\[]/)[0]||''; }
+// ══ 회사명 다음 '두 번째 단위'로 묶기 ══
+// 핵심 접두어: 회사명 뒤가 이 단어로 시작하면 붙여쓰기를 무시하고 한 묶음으로 처리
+// (예: '군악대운영과','군악대운영과장실','군악대행사반' → 모두 '군악대' 묶음)
+const GROUP_PREFIXES = ['군악대'];
+function branchKeyOf(c){
+  const norm = normalizeName(c.name||'');
+  const company = firstWord(c.name||'');
+  const rest = norm.startsWith(company) ? norm.slice(company.length).trim() : norm;
+  // 1순위: 핵심 접두어 목록(붙여쓰기 무시)
+  for(const p of GROUP_PREFIXES){ if(rest.startsWith(p)) return company + '|' + p; }
+  // 2순위: 두 번째 단위 = 띄어쓰기/괄호 전까지
+  const unit = rest.split(/[\s\(\（【\[]/)[0] || '';
+  return company + '|' + unit;
+}
 function today(){return new Date().toISOString().slice(0,10)}
 function fileIcon(name){
   const ext=(name||'').split('.').pop().toLowerCase();
@@ -2341,13 +2355,7 @@ function applyFilters(){
   // 2단계: '회사|지점(나머지)' 그룹의 첫 등록일
   const groupFirstDate = {};
   const branchFirstDate = {};
-  function branchKey(c){
-    const norm = normalizeName(c.name||'');
-    const company = firstWord(c.name||'');
-    // 정규화된 이름에서 회사명을 제거한 나머지 = 지점/부서
-    const branch = norm.startsWith(company) ? norm.slice(company.length).trim() : norm;
-    return company + '|' + branch;
-  }
+  const branchKey = branchKeyOf;
   filtered.forEach(c=>{
     if(c.terminated) return;
     const g = firstWord(c.name);
@@ -3150,12 +3158,7 @@ function renderPayment(){
   // 그룹별 대표 등록일 사전 계산 (회사그룹 + 지점그룹 2단계)
   const payGroupFirstDate = {};
   const payBranchFirstDate = {};
-  function payBranchKey(c){
-    const norm = normalizeName(c.name||'');
-    const company = firstWord(c.name||'');
-    const branch = norm.startsWith(company) ? norm.slice(company.length).trim() : norm;
-    return company + '|' + branch;
-  }
+  const payBranchKey = branchKeyOf;
   list.forEach(c=>{
     const g = firstWord(c.name);
     const bk = payBranchKey(c);
