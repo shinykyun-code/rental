@@ -486,6 +486,7 @@ console.log('📦 임베디드 데이터 준비 완료:', window.__EMBEDDED_CONT
     <button id="dbx-btn" onclick="dbxToggle()" title="Dropbox 연결" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;padding:5px 11px;border-radius:6px;cursor:pointer;font-size:11px;font-family:inherit;font-weight:600">📦 Dropbox</button>
     <button onclick="importJSON()" title="백업 파일 불러오기" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;padding:5px 11px;border-radius:6px;cursor:pointer;font-size:11px;font-family:inherit;font-weight:600">📂 불러오기</button>
     <button onclick="exportJSON()" title="데이터 백업 저장" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;padding:5px 11px;border-radius:6px;cursor:pointer;font-size:11px;font-family:inherit;font-weight:600">💾 백업</button>
+    <button onclick="exportForDashboard()" title="모니터링 대시보드로 가져갈 계약 데이터" style="background:rgba(96,165,250,.25);border:1px solid rgba(147,197,253,.6);color:#fff;padding:5px 11px;border-radius:6px;cursor:pointer;font-size:11px;font-family:inherit;font-weight:600">📤 대시보드용</button>
     <button id="nav-admin-btn" onclick="openAdminLogin()" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:5px 13px;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit;font-weight:600">🔒 관리자</button>
   </div>
 </nav>
@@ -1846,6 +1847,18 @@ function autoSave(){
   }, 1500);
 }
 
+function exportForDashboard(){
+  const active = CONTRACTS.filter(function(c){ return !c.terminated; });
+  const out = active.map(function(c){ return { no:c.no, name:c.name, model:c.etc||'', rent:parseInt(c.rent,10)||0, rent_memo:c.rent_memo||'', address:c.address||'' }; });
+  const json = JSON.stringify(out);
+  const blob = new Blob([json], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'rental.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+  setTimeout(function(){ alert('\u2705 \ub300\uc2dc\ubcf4\ub4dc\uc6a9 \ub0b4\ubcf4\ub0b4\uae30 \uc644\ub8cc\n\n\ud65c\uc131 \uacc4\uc57d ' + out.length + '\uac74 (\ud574\uc9c0 \uc81c\uc678)\n\n\ud30c\uc77c\uba85: rental.json\n\n\ubaa8\ub2c8\ud130\ub9c1 \ub300\uc2dc\ubcf4\ub4dc \u2192 \uac70\ub798\ucc98 \uc5f0\uacb0 \ud0ed \u2192 "\uacc4\uc57d \ub370\uc774\ud130 \uac00\uc838\uc624\uae30"\uc5d0\uc11c \uc774 \ud30c\uc77c\uc744 \uc120\ud0dd\ud558\uc138\uc694.'); }, 200);
+}
 function exportJSON(){
   const docCount = DOC_FILES.length;
   const payload = { CONTRACTS, SERVICES, EXTRA_PAYS, INVENTORY, STAFF_LIST, SUPPLIES, DOC_FILES,
