@@ -1446,6 +1446,8 @@ async function dbxUploadCurrentData(options){
 // 반환값: true = 업로드 완료, false = 사용자가 포기/실패
 async function handleUploadConflict(){
   console.warn('🚨 업로드 충돌 처리 시작');
+  // [최소수정] 취소/오류 시 복원할 stale rev 보관 (아래 dbxDownload가 dbxRemoteRev를 최신으로 바꾸기 때문)
+  const _prevRevBeforeConflict = dbxRemoteRev;
   // 원격 데이터 미리 받아서 정보 표시
   const remote = await dbxDownload();
   let remoteInfo = '';
@@ -1467,6 +1469,8 @@ async function handleUploadConflict(){
     '3'
   );
   if(choice === null){
+    // [최소수정] stale rev 복원 → 다음 저장도 충돌로 잡혀, 다른 기기 변경분을 조용히 덮어쓰지 않음
+    dbxRemoteRev = _prevRevBeforeConflict;
     alert('ℹ️ 선택 취소\n\n저장이 취소되었습니다.\n현재 작업한 내용은 메모리에만 있으며 자동 저장되지 않습니다.\n\n나중에 다시 시도하시거나 💾 백업 버튼으로 파일로 저장해 주세요.');
     return false;
   }
@@ -1537,6 +1541,8 @@ async function handleUploadConflict(){
     }, 1000);
     return true;
   }
+  // [최소수정] 잘못된 입력도 데이터는 미해결 상태 → stale rev 복원
+  dbxRemoteRev = _prevRevBeforeConflict;
   alert('⚠️ 잘못된 선택입니다.\n\n1, 2, 3 중 하나만 입력해 주세요.\n다시 시도하시려면 같은 작업을 한 번 더 진행해 주세요.');
   return false;
 }
