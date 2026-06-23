@@ -1425,7 +1425,58 @@ async function dbxSyncNow(){
 // 현재 데이터를 Dropbox에 업로드 (DOC_FILES의 base64 data는 메인 JSON에서 제외)
 // 현재 데이터를 Dropbox에 업로드 (DOC_FILES의 base64 data는 메인 JSON에서 제외)
 // 반환값: { ok, conflict, ... }
+// ── 저장 지문(_saveId): ack 분실로 인한 "가짜 자기충돌" 자동 해결용 ──
+let _dbxRecentSaveIds = [];   // 최근에 올린 _saveId 목록(내 업로드 식별)
+let _dbxOwnConflictRetries = 0; // 자가충돌 자동 재저장 횟수(폭주 방지)
+// 내용 비교용 정규화: 휘발성 필드 제거 후 문자열화
+function dbxNormalize(d){
+  if(!d) return '';
+  try{
+    const c = Object.assign({}, d);
+    delete c._savedAt; delete c._saveId; delete c._schemaVersion;
+    return JSON.stringify(c);
+  }catch(e){ return ''; }
+}
+// 현재 데이터 객체 생성 (track=true면 _saveId를 최근목록에 기록)
+function dbxBuildCurrentData(track){
+  if(!Array.isArray(DOC_FILES)){
+    console.warn('⚠️ 업로드 직전 DOC_FILES 타입 비정상 (' + typeof DOC_FILES + ') → 빈 배열로 보정');
+    DOC_FILES = [];
+  }
+  const docMeta = DOC_FILES.map(d => ({ id:d.id, no:d.no, cat:d.cat, desc:d.desc, name:d.name, size:d.size, fileType:d.fileType, date:d.date }));
+  const data = {
+    CONTRACTS: Array.isArray(CONTRACTS) ? CONTRACTS : [],
+    SERVICES: Array.isArray(SERVICES) ? SERVICES : [],
+    EXTRA_PAYS: Array.isArray(EXTRA_PAYS) ? EXTRA_PAYS : [],
+    INVENTORY: Array.isArray(INVENTORY) ? INVENTORY : [],
+    STAFF_LIST: Array.isArray(STAFF_LIST) ? STAFF_LIST : [],
+    SUPPLIES: Array.isArray(SUPPLIES) ? SUPPLIES : [],
+    PURCHASES: Array.isArray(PURCHASES) ? PURCHASES : [],
+    SHIPMENTS: Array.isArray(SHIPMENTS) ? SHIPMENTS : [],
+    RECOVERIES: Array.isArray(RECOVERIES) ? RECOVERIES : [],
+    DOC_FILES: docMeta,
+    nextNo, nextSvcId, nextExtraId, nextDocId, nextStaffId,
+    nextPurchaseId, nextShipmentId, nextRecoveryId,
+    _schemaVersion: 2,
+    _savedAt: new Date().toISOString()
+  };
+  if(typeof getAccounts === 'function') data.ACCOUNTS = getAccounts();
+  // 관리자 비밀번호도 함께 저장 (다른 PC에서 동기화되도록)
+  if(typeof ADMIN_PW === 'string' && ADMIN_PW) data.ADMIN_PW = ADMIN_PW;
+  // 저장 지문
+  data._saveId = 'sv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+  if(track){
+    _dbxRecentSaveIds.push(data._saveId);
+    if(_dbxRecentSaveIds.length > 12) _dbxRecentSaveIds.shift();
+  }
+  return data;
+}
 async function dbxUploadCurrentData(options){
+  const data = dbxBuildCurrentData(true);
+  return await dbxUpload(data, options);
+}
+// 구버전 본문(아래)은 dbxBuildCurrentData로 대체됨 — 사용되지 않음
+async function _dbxUploadCurrentData_unused(options){
   if(!Array.isArray(DOC_FILES)){
     console.warn('⚠️ 업로드 직전 DOC_FILES 타입 비정상 (' + typeof DOC_FILES + ') → 빈 배열로 보정');
     DOC_FILES = [];
@@ -1466,6 +1517,31 @@ async function handleUploadConflict(){
     console.warn('⚠️ 충돌 해결용 다운로드 실패(네트워크/CORS) → 백오프');
     dbxScheduleBackoffRetry(document.getElementById('save-indicator'));
     return false;
+  }
+  // ── 가짜 자기충돌 자동 해결 ──
+  // 응답 분실(CORS로 200을 못 읽음)로 내 이전 저장이 충돌처럼 보이는 경우.
+  // 원격의 저장 지문이 "내가 최근 올린 것"이면, 그건 다른 기기가 아니라 내 저장임.
+  if(remote && remote._saveId && _dbxRecentSaveIds.indexOf(remote._saveId) !== -1){
+    // dbxDownload가 이미 dbxRemoteRev를 원격 rev로 교정함
+    const curr = dbxNormalize(dbxBuildCurrentData(false));
+    const rem  = dbxNormalize(remote);
+    if(curr === rem){
+      console.log('🔁 내 이전 저장이 이미 반영됨(응답 분실) → 충돌창 없이 동기화 완료');
+      _dbxOwnConflictRetries = 0;
+      return true; // 추가 저장 불필요
+    }
+    // 그 사이 추가 수정이 있음 → 교정된 rev로 한 번 더 저장 (상한 내에서 조용히)
+    if(_dbxOwnConflictRetries < 3){
+      _dbxOwnConflictRetries++;
+      console.log('🔁 내 이전 저장 확인 + 신규 변경 있음 → 교정된 rev로 재저장 (' + _dbxOwnConflictRetries + '/3)');
+      const r2 = await dbxUploadCurrentData();
+      if(r2 && r2.ok){ _dbxOwnConflictRetries = 0; return true; }
+      if(r2 && r2.conflict){ return await handleUploadConflict(); } // 또 충돌이면 재귀(상한이 폭주 방지)
+      return false; // netfail 등 → 백오프가 처리
+    }
+    console.warn('🔁 자가충돌 자동해결 상한 초과 → 수동 처리로 전환');
+    _dbxOwnConflictRetries = 0;
+    // 아래의 일반 충돌 처리(사용자 선택)로 진행
   }
   let remoteInfo = '';
   if(remote){
@@ -1903,7 +1979,7 @@ async function dbxRunSave(){
   _lastSyncTime = Date.now();
 
   if(r && r.ok){
-    _dbxNetFailCount = 0; _dbxBackoffUntil = 0; clearTimeout(_dbxRetryTimer);
+    _dbxNetFailCount = 0; _dbxBackoffUntil = 0; clearTimeout(_dbxRetryTimer); _dbxOwnConflictRetries = 0;
     _hasUnsavedChanges = false;
     if(ind){ ind.textContent='☁️ Dropbox 저장 완료'; ind.style.color='#86efac'; setTimeout(function(){ ind.textContent=''; }, 2500); }
     return;
@@ -1913,7 +1989,7 @@ async function dbxRunSave(){
     if(ind){ ind.textContent='⚠️ 저장 충돌'; ind.style.color='#fca5a5'; }
     const resolved = await handleUploadConflict();
     if(resolved){
-      _dbxNetFailCount = 0; _dbxBackoffUntil = 0; clearTimeout(_dbxRetryTimer);
+      _dbxNetFailCount = 0; _dbxBackoffUntil = 0; clearTimeout(_dbxRetryTimer); _dbxOwnConflictRetries = 0;
       _hasUnsavedChanges = false;
       if(ind){ ind.textContent='✅ 충돌 해결됨'; ind.style.color='#86efac'; setTimeout(function(){ ind.textContent=''; }, 2500); }
     } else {
