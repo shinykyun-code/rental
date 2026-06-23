@@ -5863,28 +5863,18 @@ async function loadExternalData(){
     alert('⚠️ 데이터를 로드할 수 없습니다.\n\n같은 폴더에서 다음 명령어로 서버를 띄운 뒤 http://localhost:8000 으로 접속하세요:\n\n  python3 -m http.server 8000');
     throw new Error('데이터 없음');
   }
-  // ── 2순위: 외부 JSON 파일 fetch 시도 ──
-  try{
-    const [contracts, services] = await Promise.all([
-      fetch('contracts.json').then(r=>{ if(!r.ok) throw new Error('contracts.json 응답 ' + r.status); return r.json(); }),
-      fetch('services.json').then(r=>{ if(!r.ok) throw new Error('services.json 응답 ' + r.status); return r.json(); })
-    ]);
-    CONTRACTS = contracts;
-    SERVICES = services;
-    console.log(`📦 외부 JSON 로드 완료: 계약 ${CONTRACTS.length}건, A/S ${SERVICES.length}건`);
-  }catch(err){
-    // ── 3순위: fetch 실패 시 임베디드 데이터로 폴백 ──
-    if(window.__EMBEDDED_CONTRACTS__ && window.__EMBEDDED_SERVICES__){
-      CONTRACTS = window.__EMBEDDED_CONTRACTS__;
-      SERVICES  = window.__EMBEDDED_SERVICES__;
-      console.warn('⚠️ 외부 JSON 로드 실패 → 임베디드 데이터로 폴백:', err.message);
-      console.log(`📦 임베디드 데이터 로드: 계약 ${CONTRACTS.length}건, A/S ${SERVICES.length}건`);
-      return;
-    }
-    console.error('데이터 로드 실패:', err);
-    alert('❌ 데이터 파일 로드 실패\n\n' + err.message);
-    throw err;
+  // ── 2순위: 내장(임베디드) 데이터 사용 ──
+  //    외부 JSON 파일은 더 이상 쓰지 않음 (없어서 404가 났음). Dropbox가 정본이며,
+  //    부팅 직후 Dropbox 데이터로 교체됨. 미연결 시엔 이 내장 데이터가 표시됨.
+  if(window.__EMBEDDED_CONTRACTS__ && window.__EMBEDDED_SERVICES__){
+    CONTRACTS = window.__EMBEDDED_CONTRACTS__;
+    SERVICES  = window.__EMBEDDED_SERVICES__;
+    console.log(`📦 임베디드 데이터 로드: 계약 ${CONTRACTS.length}건, A/S ${SERVICES.length}건`);
+    return;
   }
+  console.error('데이터 로드 실패: 임베디드 데이터 없음');
+  alert('❌ 데이터 로드 실패\n\n임베디드 데이터가 없습니다. 페이지를 새로고침하거나 관리자에게 문의하세요.');
+  throw new Error('임베디드 데이터 없음');
 }
 
 window.addEventListener('DOMContentLoaded', async function(){
@@ -6007,200 +5997,7 @@ window.addEventListener('DOMContentLoaded', async function(){
 </div><!-- /main-app -->
 
 <script>
-// ══ 구글 시트 연동 (JSONP - file:// 포함 어디서든 동작) ══
-const GSHEET_API = 'https://script.google.com/macros/s/AKfycbyKv0KFYmuTPNC88M260c6bWq1M5yR_vTpsqtRU78LwVeinHg8Zg0n3A3ASG5n0KyANqQ/exec';
-
-// JSONP 방식으로 불러오기 (file:// 포함 어디서든 작동)
-function loadFromGSheet() {
-  return new Promise((resolve) => {
-    console.log('📥 구글 시트에서 데이터 불러오기 시작...');
-    const cbName = '_gsLoad_' + Date.now();
-    const script = document.createElement('script');
-    let done = false;
-    const timer = setTimeout(() => {
-      if(!done){ done=true; cleanup(); resolve(false); }
-    }, 30000);
-    function cleanup(){
-      delete window[cbName];
-      try{ document.head.removeChild(script); }catch(e){}
-    }
-    window[cbName] = function(r) {
-      clearTimeout(timer);
-      done = true;
-      cleanup();
-      try {
-        if(!r.ok || !r.data){ console.warn('❌ 구글 시트 데이터 비어 또는 오류'); resolve(false); return; }
-        console.log('✅ 구글 시트 데이터 로드 성공:', r.data);
-        const d = r.data;
-        // 데이터 무결성 검증: 핵심 데이터인 CONTRACTS가 배열이고 최소한의 형식을 갖춘 경우에만 적용
-        if(d.CONTRACTS && Array.isArray(d.CONTRACTS) && d.CONTRACTS.length > 0) {
-          CONTRACTS = d.CONTRACTS;
-          if(d.SERVICES && Array.isArray(d.SERVICES)) SERVICES = d.SERVICES;
-          if(d.EXTRA_PAYS && Array.isArray(d.EXTRA_PAYS)) EXTRA_PAYS = d.EXTRA_PAYS;
-          if(d.INVENTORY && Array.isArray(d.INVENTORY)) INVENTORY = d.INVENTORY;
-          if(d.STAFF_LIST && Array.isArray(d.STAFF_LIST)) STAFF_LIST = d.STAFF_LIST;
-          if(d.SUPPLIES && Array.isArray(d.SUPPLIES)) SUPPLIES = d.SUPPLIES;
-          console.log('✅ 클라우드 데이터가 유효하여 로컬에 적용되었습니다.');
-        } else {
-          console.warn('⚠️ 클라우드 데이터가 비어있거나 유효하지 않아 로컬 데이터를 유지합니다.');
-          resolve(false); return;
-        }
-        if(d.nextNo)      nextNo      = d.nextNo;
-        if(d.nextSvcId)   nextSvcId   = d.nextSvcId;
-        if(d.nextExtraId) nextExtraId = d.nextExtraId;
-        if(d.nextDocId)   nextDocId   = d.nextDocId;
-        if(d.nextStaffId) nextStaffId = d.nextStaffId;
-        // [BUGFIX] 로드한 데이터에 nextNo가 없거나 기존 계약과 충돌하면 보정
-        {
-          const _maxNo = CONTRACTS.reduce((m,c)=>Math.max(m, Number(c.no)||0), 0);
-          if(nextNo <= _maxNo) nextNo = _maxNo + 1;
-        }
-        if(d.ACCOUNTS && typeof d.ACCOUNTS==='object' && Object.keys(d.ACCOUNTS).length){
-          console.log('🔐 구글 시트에서 계정 정보 로드 (' + Object.keys(d.ACCOUNTS).length + '개 계정)');
-          saveAccounts(d.ACCOUNTS);
-        }
-        console.log('🌟 구글 시트 데이터 동기화 완료');
-        resolve(true);
-      } catch(e){ resolve(false); }
-    };
-    script.onerror = () => { console.error('❌ 구글 시트 로드 실패'); clearTimeout(timer); done=true; cleanup(); resolve(false); };
-    script.src = GSHEET_API + '?action=load&callback=' + cbName + '&t=' + Date.now();
-    document.head.appendChild(script);
-  });
-}
-
-// 저장 (iframe + form POST - file:// 환경에서도 동작, 대용량 OK)
-// JSONP GET 방식으로 GAS 호출 (fetch/POST는 file:// 환경에서 차단됨)
-function _jsonpGet(url, timeout) {
-  return new Promise((resolve) => {
-    const cbName = '_gsCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-    const script = document.createElement('script');
-    let done = false;
-    const timer = setTimeout(() => {
-      if(!done){ done=true; cleanup(); resolve({ ok:false, error:'timeout' }); }
-    }, timeout || 20000);
-    function cleanup(){
-      delete window[cbName];
-      try{ document.head.removeChild(script); }catch(e){}
-    }
-    window[cbName] = function(r){
-      clearTimeout(timer); done=true; cleanup(); resolve(r);
-    };
-    script.onerror = () => { clearTimeout(timer); done=true; cleanup(); resolve({ ok:false, error:'script error' }); };
-    script.src = url + '&callback=' + cbName;
-    document.head.appendChild(script);
-  });
-}
-
-async function saveToGSheet() {
-  try {
-    if(typeof GSHEET_API === 'undefined' || !GSHEET_API){
-      console.warn('GSHEET_API 미설정');
-      return false;
-    }
-
-    // DOC_FILES는 base64 파일 원본 → 수MB → GAS 저장 제외, localStorage 전용
-    // 계약 내 첨부파일도 메타만 남기고 base64 data 제거
-    const contractsClean = CONTRACTS.map(c => {
-      if(!c.files || !c.files.length) return c;
-      return { ...c, files: c.files.map(f => ({ id:f.id, name:f.name, size:f.size, type:f.type })) };
-    });
-
-    const data = {
-      CONTRACTS: contractsClean,
-      SERVICES, 
-      EXTRA_PAYS, 
-      INVENTORY, 
-      STAFF_LIST, 
-      SUPPLIES,
-      nextNo, 
-      nextSvcId, 
-      nextExtraId, 
-      nextDocId, 
-      nextStaffId,
-      DOC_FILES: {} // 클라우드 용량 초과 방지를 위해 비워둠
-    };
-    if(typeof getAccounts === 'function') {
-      data.ACCOUNTS = getAccounts();
-      console.log('📄 계정 정보 구글 시트에 저장 (' + Object.keys(data.ACCOUNTS).length + '개 계정)');
-    }
-    const payload = JSON.stringify(data);
-
-    localStorage.setItem('gs_last_payload', payload);
-
-    const encoded = encodeURIComponent(payload);
-    const KB = Math.round(encoded.length / 1024);
-    const CHUNK = 1000; // URL 길이 제한 안전을 위해 크기 축소
-    const total = Math.ceil(encoded.length / CHUNK);
-    const uid = Date.now().toString(36);
-
-    console.log(`📤 구글시트 저장 시작: ${KB}KB, 총 ${total}청크, uid=${uid}`);
-
-    const MAX_RETRIES = 3;
-    for(let i = 0; i < total; i++){
-      const chunk = encoded.slice(i * CHUNK, (i+1) * CHUNK);
-      const url = GSHEET_API
-        + '?action=save'
-        + '&uid=' + uid
-        + '&chunk=' + i
-        + '&total=' + total
-        + '&data=' + chunk;
-      
-      let success = false;
-      for(let retry = 0; retry < MAX_RETRIES; retry++) {
-        const res = await _jsonpGet(url, 60000);
-        if(res && res.ok){
-          success = true;
-          break;
-        }
-        console.warn(`⚠️ 청크 ${i+1}/${total} 전송 실패 (시도 ${retry+1}/${MAX_RETRIES}):`, res ? res.error : 'timeout');
-        if(retry < MAX_RETRIES - 1) await new Promise(r => setTimeout(r, 2000)); // 2초 대기 후 재시도
-      }
-
-      if(!success){
-        console.error(`❌ 청크 ${i+1}/${total} 최종 저장 실패`);
-        return false;
-      }
-      console.log(`✅ 청크 ${i+1}/${total} 전송 완료`);
-    }
-    console.log('✅ 구글시트 저장 완료');
-    return true;
-  } catch(e) {
-    console.error('구글시트 저장 오류:', e);
-    return false;
-  }
-}
-
-async function syncGSheet() {
-  alert('ℹ️ 구글 시트 연동은 더 이상 사용되지 않습니다.\n\n현재는 Dropbox만을 정본 저장소로 사용합니다.\n오른쪽 위 📦 Dropbox 버튼으로 연결해 주세요.');
-  return;
-}
-async function _syncGSheet_legacy() {
-  if(!confirm('현재 로컬 데이터를 구글 시트로 업로드하시겠습니까?\n(클라우드의 이전 데이터가 덮어씌워집니다.)')) return;
-
-  const ind = document.getElementById('save-indicator');
-  if(ind){ ind.textContent='📤 업로드 중...'; ind.style.color='#fbbf24'; }
-  console.log('🔄 수동 업로드 시작...');
-  
-  try {
-    const saved = await saveToGSheet();
-    if(saved) {
-      console.log('✅ 구글 시트 업로드 성공 - 데이터 검증 중...');
-      // 업로드 성공 후 즉시 다시 불러와서 데이터 일관성 확보
-      await loadFromGSheet(); 
-      if(ind){ ind.textContent='✅ 업로드 완료'; ind.style.color='#86efac'; }
-      alert('데이터가 구글 시트에 성공적으로 업로드되었습니다.');
-    } else {
-      console.error('❌ 구글 시트 업로드 실패');
-      if(ind){ ind.textContent='❌ 업로드 실패'; ind.style.color='#f87171'; }
-      alert('구글 시트 업로드에 실패했습니다. 네트워크 상태나 API 설정을 확인해주세요.');
-    }
-  } catch (e) {
-    console.error('❌ 업로드 중 오류 발생:', e);
-    if(ind){ ind.textContent='❌ 오류 발생'; ind.style.color='#f87171'; }
-  }
-  setTimeout(()=>{ if(ind) ind.textContent=''; }, 3000);
-}
+// ══ 구글 시트 연동 제거됨 (Dropbox 전용) ══
 
 // ══ 렌탈금 드래그 선택 합계 기능 ══
 (function(){
