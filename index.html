@@ -1258,7 +1258,7 @@ async function _dbxUploadCore(data, options){
     return {ok:true, remoteRev: meta.rev};
   }catch(e){
     console.error('❌ Dropbox 업로드 오류:', e && e.message ? e.message : e);
-    return {ok:false};
+    return {ok:false, netfail:true};
   }
 }
 
@@ -1461,6 +1461,12 @@ async function handleUploadConflict(){
   const _prevRevBeforeConflict = dbxRemoteRev;
   // 원격 데이터 미리 받아서 정보 표시
   const remote = await dbxDownload();
+  if(remote === null){
+    // 원격을 받지 못함(네트워크/CORS/throttle) → 충돌 해결 불가. stale rev 유지 + 백오프 재시도.
+    console.warn('⚠️ 충돌 해결용 다운로드 실패(네트워크/CORS) → 백오프');
+    dbxScheduleBackoffRetry(document.getElementById('save-indicator'));
+    return false;
+  }
   let remoteInfo = '';
   if(remote){
     const rContracts = Array.isArray(remote.CONTRACTS) ? remote.CONTRACTS.length : '?';
@@ -1604,7 +1610,7 @@ function dbxApplyData(d){
     // 계정 정보 갱신 (autoSave 트리거하지 않음)
     if(d.ACCOUNTS && typeof d.ACCOUNTS==='object' && !Array.isArray(d.ACCOUNTS) && Object.keys(d.ACCOUNTS).length){
       localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(d.ACCOUNTS));
-      console.log('🔐 Dropbox에서 계정 정보 동기화:', Object.keys(d.ACCOUNTS));
+      console.log('🔐 Dropbox에서 계정 정보 동기화 (' + Object.keys(d.ACCOUNTS).length + '개 계정)');
     }
     // 관리자 비밀번호 동기화
     if(typeof d.ADMIN_PW === 'string' && d.ADMIN_PW){
@@ -1817,6 +1823,46 @@ let _lastSyncTime = 0;
 let _offlineMode = false; // 오프라인 모드 (Dropbox 연결 실패 / 백업 파일로 작업 중)
 let _hasUnsavedChanges = false; // 미저장 변경 있는지
 
+// ── 네트워크 실패(throttle/CORS) 백오프 ──
+let _dbxBackoffUntil = 0;   // 이 시각(ms)까지는 자동 업로드 자제
+let _dbxNetFailCount = 0;   // 연속 네트워크 실패 횟수
+let _dbxRetryTimer = null;  // 예약된 자동 재시도 타이머
+const _DBX_MAX_RETRY = 5;   // 연속 자동 재시도 상한(이후 60초 간격 유지)
+
+// 네트워크/throttle 실패 판정 (즉시 재시도하면 안 되는 경우)
+function dbxIsNetFail(r){
+  if(!r) return true;
+  if(r.netfail) return true;
+  if(r.status === 429) return true;
+  if(typeof r.status === 'number' && r.status >= 500) return true;
+  return false;
+}
+// 백오프 지연: 3→6→12→24→48초, 최대 60초
+function dbxBackoffDelay(){
+  return Math.min(60000, 3000 * Math.pow(2, Math.max(0, _dbxNetFailCount - 1)));
+}
+// 네트워크 실패 시 백오프 걸고 재시도 예약
+function dbxScheduleBackoffRetry(ind){
+  _dbxNetFailCount++;
+  const capped = _dbxNetFailCount > _DBX_MAX_RETRY;
+  const delay = capped ? 60000 : dbxBackoffDelay();
+  _dbxBackoffUntil = Date.now() + delay;
+  const sec = Math.round(delay/1000);
+  clearTimeout(_dbxRetryTimer);
+  _dbxRetryTimer = setTimeout(function(){ dbxRunSave(); }, delay);
+  if(!capped){
+    if(ind){ ind.textContent='⚠️ 네트워크 일시 오류 - '+sec+'초 후 재시도 ('+_dbxNetFailCount+'/'+_DBX_MAX_RETRY+')'; ind.style.color='#fbbf24'; }
+    console.warn('⏳ 네트워크 실패 → '+sec+'초 후 재시도 ('+_dbxNetFailCount+'/'+_DBX_MAX_RETRY+')');
+  } else {
+    if(ind){ ind.textContent='⚠️ 네트워크 오류 지속 - '+sec+'초 후 재시도'; ind.style.color='#f87171'; }
+    console.error('🛑 네트워크 실패 지속 → '+sec+'초 간격 재시도 중');
+    if(_dbxNetFailCount === _DBX_MAX_RETRY + 1){
+      alert('⚠️ Dropbox 저장이 반복 실패하고 있습니다.\n\n네트워크 또는 Dropbox 일시 혼잡일 수 있습니다.\n작업 내용은 메모리에 그대로 있습니다.\n잠시 후 자동으로 다시 시도하며, 계속되면 페이지를 새로고침해 주세요.\n(중요하면 💾 백업으로도 저장해 두세요.)');
+    }
+  }
+}
+
+
 function autoSave(){
   if(_suppressAutoSave) return; // Dropbox 동기화 중에는 autoSave 무시
   _hasUnsavedChanges = true;
@@ -1824,45 +1870,69 @@ function autoSave(){
   const ind = document.getElementById('save-indicator');
   if(_offlineMode){
     if(ind){ ind.textContent='⚠️ 오프라인 - 미저장'; ind.style.color='#fbbf24'; }
-    return; // 오프라인 모드에서는 자동 저장 안 함 (사용자가 💾 백업으로 보존)
+    return;
   }
   if(!dbxIsConnected()){
     if(ind){ ind.textContent='⚠️ Dropbox 미연결 - 미저장'; ind.style.color='#f87171'; }
     return;
   }
+  // 백오프 중이면: 예약된 재시도가 최신 데이터까지 함께 올리므로 새 타이머를 걸지 않음
+  if(Date.now() < _dbxBackoffUntil){
+    if(ind){ ind.textContent='⏳ 네트워크 대기 중 - 곧 재시도'; ind.style.color='#fbbf24'; }
+    return;
+  }
   if(ind){ ind.textContent='☁️ 저장 대기 중...'; ind.style.color='#fbbf24'; }
   console.log('🔄 자동 저장 예약...');
-
-  _saveTimer = setTimeout(async ()=>{
-    if(ind){ ind.textContent='☁️ Dropbox 저장 중...'; ind.style.color='#fbbf24'; }
-    const r = await dbxUploadCurrentData();
-    _lastSyncTime = Date.now();
-    if(r && r.ok){
-      _hasUnsavedChanges = false;
-      if(ind){
-        ind.textContent='☁️ Dropbox 저장 완료';
-        ind.style.color='#86efac';
-        setTimeout(()=>{ ind.textContent=''; }, 2500);
-      }
-    } else if(r && r.conflict){
-      if(ind){ ind.textContent='⚠️ 저장 충돌'; ind.style.color='#fca5a5'; }
-      // 사용자에게 선택 제공
-      const resolved = await handleUploadConflict();
-      if(resolved){
-        _hasUnsavedChanges = false;
-        if(ind){ ind.textContent='✅ 충돌 해결됨'; ind.style.color='#86efac'; setTimeout(()=>{ ind.textContent=''; }, 2500); }
-      } else {
-        if(ind){ ind.textContent='⚠️ 충돌 미해결 - 미저장'; ind.style.color='#fca5a5'; }
-      }
-    } else {
-      if(ind){
-        ind.textContent='⚠️ Dropbox 저장 실패';
-        ind.style.color='#fca5a5';
-        setTimeout(()=>{ ind.textContent=''; }, 2500);
-      }
-    }
-  }, 1500);
+  _saveTimer = setTimeout(function(){ dbxRunSave(); }, 1500);
 }
+
+// 실제 업로드 시도 + 결과 처리 + 네트워크 실패 시 백오프
+async function dbxRunSave(){
+  const ind = document.getElementById('save-indicator');
+  const now = Date.now();
+  // 아직 백오프 중이면 남은 시간만큼 뒤로 미룸
+  if(now < _dbxBackoffUntil){
+    clearTimeout(_dbxRetryTimer);
+    _dbxRetryTimer = setTimeout(function(){ dbxRunSave(); }, _dbxBackoffUntil - now);
+    return;
+  }
+  if(_suppressAutoSave) return;
+  if(_offlineMode || !dbxIsConnected()) return;
+  if(ind){ ind.textContent='☁️ Dropbox 저장 중...'; ind.style.color='#fbbf24'; }
+  const r = await dbxUploadCurrentData();
+  _lastSyncTime = Date.now();
+
+  if(r && r.ok){
+    _dbxNetFailCount = 0; _dbxBackoffUntil = 0; clearTimeout(_dbxRetryTimer);
+    _hasUnsavedChanges = false;
+    if(ind){ ind.textContent='☁️ Dropbox 저장 완료'; ind.style.color='#86efac'; setTimeout(function(){ ind.textContent=''; }, 2500); }
+    return;
+  }
+
+  if(r && r.conflict){
+    if(ind){ ind.textContent='⚠️ 저장 충돌'; ind.style.color='#fca5a5'; }
+    const resolved = await handleUploadConflict();
+    if(resolved){
+      _dbxNetFailCount = 0; _dbxBackoffUntil = 0; clearTimeout(_dbxRetryTimer);
+      _hasUnsavedChanges = false;
+      if(ind){ ind.textContent='✅ 충돌 해결됨'; ind.style.color='#86efac'; setTimeout(function(){ ind.textContent=''; }, 2500); }
+    } else {
+      // 미해결: 사용자가 취소했거나, 네트워크 실패(이 경우 handleUploadConflict가 이미 백오프 재시도를 예약함)
+      if(ind){ ind.textContent='⚠️ 충돌 미해결 - 미저장'; ind.style.color='#fca5a5'; }
+    }
+    return;
+  }
+
+  // 네트워크/throttle 실패 → 백오프 후 자동 재시도
+  if(dbxIsNetFail(r)){
+    dbxScheduleBackoffRetry(ind);
+    return;
+  }
+
+  // 그 외 실제 오류
+  if(ind){ ind.textContent='⚠️ Dropbox 저장 실패'; ind.style.color='#fca5a5'; setTimeout(function(){ ind.textContent=''; }, 2500); }
+}
+
 
 function exportForDashboard(){
   const active = CONTRACTS.filter(function(c){ return !c.terminated; });
@@ -5302,11 +5372,11 @@ function getAccounts(){
   try{
     const s = JSON.parse(localStorage.getItem(ACCOUNTS_KEY)||'null');
     const result = (s && Object.keys(s).length) ? s : Object.assign({},DEFAULT_ACCOUNTS);
-    console.log('🔐 계정 정보 로드:', result);
+    console.log('🔐 계정 정보 로드 완료 (' + Object.keys(result).length + '개 계정)');
     return result;
   }catch(e){ console.error('계정 로드 오류:', e); return Object.assign({},DEFAULT_ACCOUNTS); }
 }
-function saveAccounts(a){ localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(a)); console.log('📄 계정 정보 로컬 저장:', a); if(typeof autoSave==='function') autoSave(); }
+function saveAccounts(a){ localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(a)); console.log('📄 계정 정보 로컬 저장 (' + Object.keys(a).length + '개 계정)'); if(typeof autoSave==='function') autoSave(); }
 
 function checkSession(){
   try{
@@ -5910,7 +5980,7 @@ function loadFromGSheet() {
           if(nextNo <= _maxNo) nextNo = _maxNo + 1;
         }
         if(d.ACCOUNTS && typeof d.ACCOUNTS==='object' && Object.keys(d.ACCOUNTS).length){
-          console.log('🔐 구글 시트에서 계정 정보 로드:', d.ACCOUNTS);
+          console.log('🔐 구글 시트에서 계정 정보 로드 (' + Object.keys(d.ACCOUNTS).length + '개 계정)');
           saveAccounts(d.ACCOUNTS);
         }
         console.log('🌟 구글 시트 데이터 동기화 완료');
@@ -5976,7 +6046,7 @@ async function saveToGSheet() {
     };
     if(typeof getAccounts === 'function') {
       data.ACCOUNTS = getAccounts();
-      console.log('📄 계정 정보 구글 시트에 저장:', data.ACCOUNTS);
+      console.log('📄 계정 정보 구글 시트에 저장 (' + Object.keys(data.ACCOUNTS).length + '개 계정)');
     }
     const payload = JSON.stringify(data);
 
