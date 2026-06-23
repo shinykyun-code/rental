@@ -1204,7 +1204,18 @@ async function dbxDownload(){
 
 // 5) Dropbox에 데이터 업로드 (rev 기반 충돌 감지 지원)
 // 반환값: { ok: boolean, conflict?: boolean, remoteRev?: string, status?: number }
+// ── 업로드 직렬화 잠금 ──
+//    이전 업로드가 완전히 끝난 뒤에 다음 업로드가 시작되도록 줄을 세운다.
+//    (동시 업로드 시 두 번째가 옛 rev로 올라가 자기 자신과 409 충돌하던 문제 해결)
+let _dbxUploadLock = Promise.resolve();
 async function dbxUpload(data, options){
+  // 앞선 업로드가 실패해도 다음 업로드는 진행되도록 then(run, run) 사용
+  const run = function(){ return _dbxUploadCore(data, options); };
+  const p = _dbxUploadLock.then(run, run);
+  _dbxUploadLock = p.catch(function(){}); // 잠금 체인이 거부로 끊기지 않도록 보호
+  return p;
+}
+async function _dbxUploadCore(data, options){
   options = options || {};
   const force = options.force === true; // true면 충돌 무시하고 강제 덮어쓰기
   const token = await dbxGetAccessToken();
